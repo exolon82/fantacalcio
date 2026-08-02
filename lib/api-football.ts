@@ -10,7 +10,7 @@ type ApiResponse<T> = {
   errors?: Record<string, string> | string[];
 };
 
-type ApiTeam = { team: { id: number; name: string; code?: string | null; logo?: string | null } };
+type ApiTeam = { team: { id: number; name: string; code?: string | null; country?: string | null; logo?: string | null } };
 type ApiSquad = { team: { id: number; name: string; logo?: string | null }; players: Array<{ id: number; name: string; age?: number | null; number?: number | null; position?: string | null; photo?: string | null }> };
 type ApiPlayerStats = {
   player: { id: number; name: string; firstname?: string | null; lastname?: string | null; age?: number | null; birth?: { date?: string | null }; nationality?: string | null; height?: string | null; weight?: string | null; injured?: boolean; photo?: string | null };
@@ -27,6 +27,23 @@ type ApiPlayerStats = {
 };
 
 type ApiInjury = { player?: { id?: number; name?: string }; type?: string; reason?: string };
+
+// Partecipanti ufficiali 2026/27 pubblicati da Lega Serie A.
+// La lista evita che i limiti stagionali del piano API gratuito nascondano le neopromosse.
+const CURRENT_SERIE_A_TEAMS = [
+  "Atalanta", "Sassuolo", "Bologna", "Lazio", "Frosinone", "Juventus", "Genoa", "Napoli", "Inter", "Monza",
+  "Parma", "Cagliari", "Roma", "Fiorentina", "Torino", "Milan", "Udinese", "Como", "Venezia", "Lecce",
+] as const;
+
+const TEAM_ALIASES: Record<string, string[]> = {
+  Inter: ["inter", "inter milan", "internazionale"],
+  Milan: ["milan", "ac milan"],
+  Monza: ["monza", "ac monza"],
+  Roma: ["roma", "as roma"],
+  Lazio: ["lazio", "ss lazio"],
+  Lecce: ["lecce", "us lecce"],
+  Fiorentina: ["fiorentina", "acf fiorentina"],
+};
 
 function season() {
   const configured = Number(process.env.SERIE_A_SEASON);
@@ -63,6 +80,35 @@ async function request<T>(path: string, waitBefore = false): Promise<ApiResponse
   return payload;
 }
 
+function matchesOfficialTeam(apiName: string, officialName: string) {
+  const normalised = apiName.toLocaleLowerCase("it").trim();
+  return (TEAM_ALIASES[officialName] ?? [officialName.toLocaleLowerCase("it")]).includes(normalised);
+}
+
+async function resolveCurrentSerieATeams() {
+  // Il 2024 è incluso nel piano gratuito e fornisce quasi tutti gli ID permanenti.
+  // Per le sole squadre mancanti usiamo la ricerca per nome, che non richiede una stagione.
+  const discoverySeason = Number(process.env.API_FOOTBALL_DISCOVERY_SEASON) || 2024;
+  const historical = await request<ApiTeam[]>(`/teams?league=${SERIE_A_LEAGUE_ID}&season=${discoverySeason}`);
+  const teams: ApiTeam[] = [];
+  let calls = 1;
+  for (const officialName of CURRENT_SERIE_A_TEAMS) {
+    let match = historical.response.find((entry) => matchesOfficialTeam(entry.team.name, officialName));
+    if (!match) {
+      const searched = await request<ApiTeam[]>(`/teams?search=${encodeURIComponent(officialName)}`, true);
+      calls += 1;
+      match = searched.response.find((entry) => (!entry.team.country || entry.team.country === "Italy") && matchesOfficialTeam(entry.team.name, officialName));
+    }
+    if (match) teams.push(match);
+  }
+  if (teams.length !== CURRENT_SERIE_A_TEAMS.length) {
+    const found = new Set(teams.map((entry) => CURRENT_SERIE_A_TEAMS.find((name) => matchesOfficialTeam(entry.team.name, name))));
+    const missing = CURRENT_SERIE_A_TEAMS.filter((name) => !found.has(name));
+    throw new Error(`Squadre Serie A non risolte: ${missing.join(", ")}`);
+  }
+  return { teams, calls, discoverySeason };
+}
+
 function keepExisting(base: SerieAPlayerRecord, existing?: SerieAPlayerRecord): SerieAPlayerRecord {
   if (!existing) return base;
   return {
@@ -92,12 +138,11 @@ function keepExisting(base: SerieAPlayerRecord, existing?: SerieAPlayerRecord): 
 export async function syncSerieASquads() {
   const existingRows = await getSerieAPlayers();
   const existing = new Map(existingRows.map((player) => [player.provider_id, player]));
-  const teamsResult = await request<ApiTeam[]>(`/teams?league=${SERIE_A_LEAGUE_ID}&season=${season()}`);
-  const teams = teamsResult.response;
-  if (!teams.length) throw new Error(`Nessuna squadra disponibile per la stagione ${season()}`);
+  const resolved = await resolveCurrentSerieATeams();
+  const teams = resolved.teams;
 
   const players = new Map<number, SerieAPlayerRecord>();
-  let calls = 1;
+  let calls = resolved.calls;
   for (const entry of teams) {
     const squadResult = await request<ApiSquad[]>(`/players/squads?team=${entry.team.id}`, true);
     calls += 1;
@@ -128,19 +173,27 @@ export async function syncSerieASquads() {
     }
   }
   await upsertSerieAPlayers([...players.values()]);
-  return { teams: teams.length, players: players.size, calls, season: season() };
+  return { teams: teams.length, players: players.size, calls, season: season(), discoverySeason: resolved.discoverySeason };
 }
 
 export async function syncPreviousSeasonStats() {
   const currentRows = await getSerieAPlayers();
   if (!currentRows.length) throw new Error("Rosa Serie A non ancora sincronizzata");
   const current = new Map(currentRows.map((player) => [player.provider_id, player]));
-  const first = await request<ApiPlayerStats[]>(`/players?league=${SERIE_A_LEAGUE_ID}&season=${previousSeason()}&page=1`);
+  let statsSeason = previousSeason();
+  let first: ApiResponse<ApiPlayerStats[]>;
+  let calls = 1;
+  try {
+    first = await request<ApiPlayerStats[]>(`/players?league=${SERIE_A_LEAGUE_ID}&season=${statsSeason}&page=1`);
+  } catch {
+    statsSeason = Number(process.env.API_FOOTBALL_STATS_SEASON) || 2024;
+    first = await request<ApiPlayerStats[]>(`/players?league=${SERIE_A_LEAGUE_ID}&season=${statsSeason}&page=1`, true);
+    calls += 1;
+  }
   const pages = Math.min(first.paging?.total ?? 1, 42);
   const responses = [...first.response];
-  let calls = 1;
   for (let page = 2; page <= pages; page += 1) {
-    const result = await request<ApiPlayerStats[]>(`/players?league=${SERIE_A_LEAGUE_ID}&season=${previousSeason()}&page=${page}`, true);
+    const result = await request<ApiPlayerStats[]>(`/players?league=${SERIE_A_LEAGUE_ID}&season=${statsSeason}&page=${page}`, true);
     calls += 1;
     responses.push(...result.response);
   }
@@ -178,7 +231,7 @@ export async function syncPreviousSeasonStats() {
       height: item.player.height ?? base.height ?? null,
       weight: item.player.weight ?? base.weight ?? null,
       photo_url: item.player.photo ?? base.photo_url ?? null,
-      stats_season: previousSeason(),
+      stats_season: statsSeason,
       appearances: stats.games?.appearences ?? 0,
       starts: stats.games?.lineups ?? 0,
       minutes: stats.games?.minutes ?? 0,
@@ -203,5 +256,5 @@ export async function syncPreviousSeasonStats() {
     enriched += 1;
   }
   await upsertSerieAPlayers([...current.values()]);
-  return { players: current.size, enriched, pages, calls, statsSeason: previousSeason() };
+  return { players: current.size, enriched, pages, calls, statsSeason };
 }
