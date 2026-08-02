@@ -1,0 +1,53 @@
+export type StoredDailyReport = {
+  report_date: string;
+  payload: unknown;
+  sources: unknown[];
+  created_at?: string;
+  updated_at?: string;
+};
+
+function config() {
+  const url = process.env.SUPABASE_URL?.replace(/\/$/, "");
+  const key = process.env.SUPABASE_SECRET_KEY ?? process.env.SUPABASE_SERVICE_ROLE_KEY;
+  return url && key ? { url, key } : null;
+}
+
+function headers(key: string) {
+  return {
+    apikey: key,
+    Authorization: `Bearer ${key}`,
+    "Content-Type": "application/json",
+  };
+}
+
+export function isDatabaseConfigured() {
+  return Boolean(config());
+}
+
+export async function getLatestReport(): Promise<StoredDailyReport | null> {
+  const settings = config();
+  if (!settings) return null;
+  const response = await fetch(`${settings.url}/rest/v1/daily_reports?select=report_date,payload,sources,created_at,updated_at&order=report_date.desc&limit=1`, {
+    headers: headers(settings.key),
+    cache: "no-store",
+  });
+  if (!response.ok) throw new Error(`Supabase read ${response.status}`);
+  const rows = (await response.json()) as StoredDailyReport[];
+  return rows[0] ?? null;
+}
+
+export async function saveDailyReport(report: StoredDailyReport) {
+  const settings = config();
+  if (!settings) return false;
+  const response = await fetch(`${settings.url}/rest/v1/daily_reports?on_conflict=report_date`, {
+    method: "POST",
+    headers: {
+      ...headers(settings.key),
+      Prefer: "resolution=merge-duplicates,return=minimal",
+    },
+    body: JSON.stringify(report),
+  });
+  if (!response.ok) throw new Error(`Supabase write ${response.status}: ${(await response.text()).slice(0, 180)}`);
+  return true;
+}
+

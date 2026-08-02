@@ -3,5 +3,11 @@
   "framework": "nextjs",
   "installCommand": "npm ci",
   "buildCommand": "npx next build",
-  "devCommand": "npx next dev"
+  "devCommand": "npx next dev",
+  "crons": [
+    {
+      "path": "/api/cron/daily-report",
+      "schedule": "0 6 * * *"
+    }
+  ]
 }

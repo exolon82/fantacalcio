@@ -3,7 +3,19 @@
 import { useEffect, useMemo, useState } from "react";
 
 type Role = "P" | "D" | "C" | "A";
-type Tab = "radar" | "mercato" | "confronta" | "fonti";
+type Tab = "radar" | "mercato" | "confronta" | "ai" | "fonti";
+
+type AiPick = { player: string; role: string; tier: "Stella" | "Low-cost"; maxBid: number; reason: string; risk: string };
+type AiPlan = { title: string; formation: string; budget: number; estimatedSpend: number; starsUsed: number; stars: AiPick[]; lowCost: AiPick[]; tacticalNote: string; budgetRule: string };
+type DailyReport = {
+  date: string;
+  headline: string;
+  summary: string;
+  prospects: Array<{ player: string; age: number; club: string; signal: "SALE" | "STABILE" | "RISCHIO"; reason: string }>;
+  lowCostWatch: Array<{ player: string; role: string; reason: string }>;
+  alerts: string[];
+  marketPulse: string;
+};
 
 type Player = {
   id: number;
@@ -82,15 +94,37 @@ export default function Home() {
   const [compare, setCompare] = useState<number[]>([6, 7]);
   const [syncing, setSyncing] = useState(false);
   const [syncMessage, setSyncMessage] = useState("Pronto per la sincronizzazione");
+  const [aiBudget, setAiBudget] = useState(500);
+  const [aiFormation, setAiFormation] = useState("3-4-3");
+  const [aiRisk, setAiRisk] = useState("Equilibrato");
+  const [aiPlan, setAiPlan] = useState<AiPlan | null>(null);
+  const [aiSource, setAiSource] = useState<"openai" | "simulazione" | null>(null);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiError, setAiError] = useState("");
+  const [dailyReport, setDailyReport] = useState<DailyReport | null>(null);
+  const [reportStored, setReportStored] = useState(false);
 
   useEffect(() => {
     const saved = window.localStorage.getItem("undici-shortlist");
+    // Ripristino una preferenza del browser dopo il primo render client.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (saved) setShortlist(JSON.parse(saved));
   }, []);
 
   useEffect(() => {
     window.localStorage.setItem("undici-shortlist", JSON.stringify(shortlist));
   }, [shortlist]);
+
+  useEffect(() => {
+    if (tab !== "ai" || dailyReport) return;
+    fetch("/api/reports/latest", { cache: "no-store" })
+      .then((response) => response.json())
+      .then((data: { report?: DailyReport; stored?: boolean }) => {
+        if (data.report) setDailyReport(data.report);
+        setReportStored(Boolean(data.stored));
+      })
+      .catch(() => setDailyReport(null));
+  }, [tab, dailyReport]);
 
   const filtered = useMemo(() => players
     .filter(p => role === "Tutti" || p.role === role)
@@ -123,6 +157,26 @@ export default function Home() {
     }
   }
 
+  async function buildAiPlan() {
+    setAiLoading(true);
+    setAiError("");
+    try {
+      const response = await fetch("/api/ai/recommend", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ budget: aiBudget, formation: aiFormation, risk: aiRisk }),
+      });
+      const data = await response.json() as { plan?: AiPlan; source?: "openai" | "simulazione"; error?: string };
+      if (!response.ok || !data.plan) throw new Error(data.error ?? "Il DS AI non ha completato l’analisi.");
+      setAiPlan(data.plan);
+      setAiSource(data.source ?? "simulazione");
+    } catch (error) {
+      setAiError(error instanceof Error ? error.message : "Connessione AI non disponibile.");
+    } finally {
+      setAiLoading(false);
+    }
+  }
+
   return (
     <main>
       <div className="data-banner">SCENARIO PRE-ASTA 2026/27 <span>•</span> Dati dimostrativi, non quotazioni ufficiali</div>
@@ -135,6 +189,7 @@ export default function Home() {
           <button className={tab === "radar" ? "active" : ""} onClick={() => setTab("radar")}>Radar asta</button>
           <button className={tab === "mercato" ? "active" : ""} onClick={() => setTab("mercato")}>Trasferimenti</button>
           <button className={tab === "confronta" ? "active" : ""} onClick={() => setTab("confronta")}>Confronta <span className="nav-count">{compare.length}</span></button>
+          <button className={tab === "ai" ? "active" : ""} onClick={() => setTab("ai")}>DS AI <span className="ai-nav-dot" /></button>
           <button className={tab === "fonti" ? "active" : ""} onClick={() => setTab("fonti")}>Fonti</button>
         </nav>
         <div className="header-actions">
@@ -260,6 +315,61 @@ export default function Home() {
         </section>
       )}
 
+      {tab === "ai" && (
+        <section className="page-section ai-page">
+          <div className="page-heading ai-heading">
+            <div><p className="eyebrow">DIRETTORE SPORTIVO AI</p><h1>Due stelle.<br />Una rosa vera.</h1></div>
+            <p>L’AI incrocia numeri, prezzo, titolarità, infortuni e notizie. Vincolo non negoziabile: massimo due top, poi solo valore e low-cost.</p>
+          </div>
+
+          <div className="ai-control-grid">
+            <div className="ai-builder">
+              <div className="section-title"><h2>Imposta il piano d’asta</h2><span>VINCOLO 2 STELLE ATTIVO</span></div>
+              <div className="ai-fields">
+                <label><span>Budget totale</span><div className="number-field"><input type="number" min="100" max="1000" value={aiBudget} onChange={(event) => setAiBudget(Number(event.target.value))} /><b>crediti</b></div></label>
+                <label><span>Modulo preferito</span><select value={aiFormation} onChange={(event) => setAiFormation(event.target.value)}><option>3-4-3</option><option>3-5-2</option><option>4-3-3</option><option>4-4-2</option></select></label>
+                <label><span>Profilo di rischio</span><select value={aiRisk} onChange={(event) => setAiRisk(event.target.value)}><option>Prudente</option><option>Equilibrato</option><option>Aggressivo</option></select></label>
+              </div>
+              <button className="ai-generate" onClick={buildAiPlan} disabled={aiLoading}><span>{aiLoading ? "Analisi di rosa in corso…" : "Genera la formazione bomba"}</span><b>AI →</b></button>
+              {aiError && <p className="ai-error">{aiError}</p>}
+            </div>
+            <aside className="star-rule">
+              <div className="star-counter"><strong>{aiPlan?.starsUsed ?? 0}</strong><span>/ 2</span></div>
+              <small>STELLE UTILIZZATE</small>
+              <h2>Il terzo campione<br />non si compra.</h2>
+              <p>Dopo due top il motore blocca automaticamente altri premium e cerca titolari, rigoristi potenziali e giovani sottovalutati.</p>
+              <ul><li>Massimo 2 stelle totali</li><li>Tetto d’asta per ogni nome</li><li>Budget residuo sempre visibile</li></ul>
+            </aside>
+          </div>
+
+          {aiPlan && (
+            <div className="ai-result">
+              <div className="result-head">
+                <div><span className={`engine-state ${aiSource}`}>{aiSource === "openai" ? "OPENAI LIVE" : "ANTEPRIMA INTELLIGENTE"}</span><h2>{aiPlan.title}</h2><p>{aiPlan.tacticalNote}</p></div>
+                <div className="budget-card"><small>SPESA NUCLEO</small><strong>{aiPlan.estimatedSpend}</strong><span>su {aiPlan.budget} crediti</span><b>{Math.max(0, aiPlan.budget - aiPlan.estimatedSpend)} residui</b></div>
+              </div>
+              <div className="squad-columns">
+                <div className="pick-group stars"><div className="pick-title"><span>★</span><div><small>I DUE LEADER</small><h3>Stelle della rosa</h3></div></div>{aiPlan.stars.map((pick) => <article className="ai-pick" key={pick.player}><span className="role-square">{pick.role}</span><div><h4>{pick.player}</h4><p>{pick.reason}</p><small>Rischio {pick.risk}</small></div><div className="max-bid"><strong>{pick.maxBid}</strong><span>tetto</span></div></article>)}</div>
+                <div className="pick-group lowcost"><div className="pick-title"><span>↘</span><div><small>L’OSSATURA</small><h3>Low-cost ad alto valore</h3></div></div>{aiPlan.lowCost.map((pick) => <article className="ai-pick" key={pick.player}><span className="role-square">{pick.role}</span><div><h4>{pick.player}</h4><p>{pick.reason}</p><small>Rischio {pick.risk}</small></div><div className="max-bid"><strong>{pick.maxBid}</strong><span>tetto</span></div></article>)}</div>
+              </div>
+              <div className="budget-rule"><b>REGOLA DEL DS</b><p>{aiPlan.budgetRule}</p><span>Modulo {aiPlan.formation}</span></div>
+            </div>
+          )}
+
+          <section className="daily-report">
+            <div className="report-top"><div><p className="eyebrow">REPORT GIOVANI · OGNI MATTINA</p><h2>{dailyReport?.headline ?? "Caricamento del briefing…"}</h2></div><span className={reportStored ? "report-live" : "report-demo"}>{reportStored ? "ARCHIVIATO SU SUPABASE" : "ANTEPRIMA DEMO"}</span></div>
+            {dailyReport && <>
+              <p className="report-summary">{dailyReport.summary}</p>
+              <div className="report-grid">
+                <div><h3>Possibili stelle</h3>{dailyReport.prospects.map((prospect) => <article className="prospect-row" key={prospect.player}><span className={`prospect-signal ${prospect.signal.toLowerCase()}`}>{prospect.signal}</span><div><h4>{prospect.player} <small>{prospect.age} · {prospect.club}</small></h4><p>{prospect.reason}</p></div></article>)}</div>
+                <div><h3>Radar low-cost</h3>{dailyReport.lowCostWatch.map((pick) => <article className="watch-row" key={pick.player}><span>{pick.role}</span><div><h4>{pick.player}</h4><p>{pick.reason}</p></div></article>)}</div>
+                <aside><small>POLSO DEL MERCATO</small><p>{dailyReport.marketPulse}</p><h4>Allarmi del giorno</h4><ul>{dailyReport.alerts.map((alert) => <li key={alert}>{alert}</li>)}</ul><span className="report-date">Aggiornato {new Date(dailyReport.date).toLocaleDateString("it-IT")}</span></aside>
+              </div>
+            </>}
+          </section>
+        </section>
+      )}
+
       {tab === "fonti" && (
         <section className="page-section sources-page">
           <div className="page-heading compact"><p className="eyebrow">TRASPARENZA DEL DATO</p><h1>Fonti sotto controllo.</h1><p>L’app non inventa una statistica mancante: mostra copertura, freschezza e affidabilità di ogni segnale.</p></div>
@@ -269,8 +379,10 @@ export default function Home() {
             <article><div className="source-logo">AF</div><span className="source-state key">Chiave API</span><h2>API-Football</h2><p>Statistiche giocatore, tiri, passaggi, trasferimenti e infortuni quando inclusi nel piano.</p><ul><li>100 richieste/giorno nel piano free</li><li>Stagioni free soggette a limiti</li><li>Fonte primaria del motore statistico</li></ul></article>
             <article><div className="source-logo">GN</div><span className="source-state key">Chiave API</span><h2>GNews</h2><p>Notizie italiane per misurare attenzione mediatica, sentiment e rischio hype.</p><ul><li>Account gratuito disponibile</li><li>Solo titoli e metadati nel modello</li><li>Mai usata come dato prestazionale</li></ul></article>
             <article><div className="source-logo">SD</div><span className="source-state ready">Demo attiva</span><h2>TheSportsDB</h2><p>Squadre, giocatori e metadati di supporto con accesso pubblico al livello base.</p><ul><li>30 richieste/min gratuite</li><li>Chiave pubblica v1 disponibile</li><li>Fallback per anagrafiche e club</li></ul></article>
+            <article><div className="source-logo">AI</div><span className="source-state key">Chiave privata</span><h2>OpenAI</h2><p>Ragiona sui segnali disponibili e costruisce il piano d’asta con massimo due stelle.</p><ul><li>gpt-5.6-sol per le scelte</li><li>gpt-5.6-luna per il report</li><li>Chiave custodita solo su Vercel</li></ul></article>
+            <article><div className="source-logo">SB</div><span className="source-state ready">Piano free</span><h2>Supabase</h2><p>Database Postgres esterno per conservare lo storico dei report giornalieri.</p><ul><li>Accesso soltanto lato server</li><li>Row Level Security attiva</li><li>Nessuna chiave esposta al browser</li></ul></article>
           </div>
-          <div className="method-note"><span>i</span><div><h3>Come nasce il DS Score</h3><p>Prestazione 40% · titolarità 20% · affidabilità fisica 15% · contesto squadra 15% · prezzo e hype 10%. La quota fantacalcistica ufficiale richiede una licenza del relativo editore: in questa versione è una stima interna dichiarata.</p></div></div>
+          <div className="method-note"><span>i</span><div><h3>Come nasce il DS Score</h3><p>Prestazione 40% · titolarità 20% · affidabilità fisica 15% · contesto squadra 15% · prezzo e hype 10%. Regola rosa: massimo 2 stelle, poi low-cost. La quota fantacalcistica ufficiale richiede una licenza del relativo editore: in questa versione è una stima interna dichiarata.</p></div></div>
         </section>
       )}
 
