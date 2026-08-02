@@ -192,10 +192,16 @@ export async function syncPreviousSeasonStats() {
   }
   const pages = Math.min(first.paging?.total ?? 1, 42);
   const responses = [...first.response];
+  let stoppedReason: string | null = null;
   for (let page = 2; page <= pages; page += 1) {
-    const result = await request<ApiPlayerStats[]>(`/players?league=${SERIE_A_LEAGUE_ID}&season=${statsSeason}&page=${page}`, true);
-    calls += 1;
-    responses.push(...result.response);
+    try {
+      const result = await request<ApiPlayerStats[]>(`/players?league=${SERIE_A_LEAGUE_ID}&season=${statsSeason}&page=${page}`, true);
+      calls += 1;
+      responses.push(...result.response);
+    } catch (error) {
+      stoppedReason = error instanceof Error ? error.message : "Limite del provider raggiunto";
+      break;
+    }
   }
 
   const injuryMap = new Map<number, { count: number; note: string | null }>();
@@ -256,5 +262,5 @@ export async function syncPreviousSeasonStats() {
     enriched += 1;
   }
   await upsertSerieAPlayers([...current.values()]);
-  return { players: current.size, enriched, pages, calls, statsSeason };
+  return { players: current.size, enriched, pages, calls, statsSeason, partial: Boolean(stoppedReason), stoppedReason };
 }

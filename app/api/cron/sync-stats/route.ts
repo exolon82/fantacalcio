@@ -11,7 +11,7 @@ export async function GET(request: Request) {
     const result = await syncPreviousSeasonStats();
     return NextResponse.json({ ok: true, ...result });
   } catch (error) {
+    console.error("[sync-stats]", error);
     return NextResponse.json({ ok: false, error: error instanceof Error ? error.message : "Sincronizzazione statistiche non riuscita" }, { status: 500 });
   }
 }
-

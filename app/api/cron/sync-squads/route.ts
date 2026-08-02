@@ -11,7 +11,7 @@ export async function GET(request: Request) {
     const result = await syncSerieASquads();
     return NextResponse.json({ ok: true, ...result });
   } catch (error) {
+    console.error("[sync-squads]", error);
     return NextResponse.json({ ok: false, error: error instanceof Error ? error.message : "Sincronizzazione rosa non riuscita" }, { status: 500 });
   }
 }
-
