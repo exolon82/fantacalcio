@@ -5,7 +5,7 @@ comparatore per ruolo, shortlist, trasferimenti e valutazione dell'hype.
 
 ## Avvio locale
 
-Richiede Node.js 22.
+Richiede Node.js 24.
 
 ```bash
 npm ci
