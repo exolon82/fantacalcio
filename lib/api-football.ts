@@ -1,0 +1,207 @@
+import { calculatePlayerScores, roleFromPosition, type SerieAPlayerRecord } from "./serie-a";
+import { getSerieAPlayers, upsertSerieAPlayers } from "./supabase";
+
+const API_BASE = "https://v3.football.api-sports.io";
+const SERIE_A_LEAGUE_ID = 135;
+
+type ApiResponse<T> = {
+  response: T;
+  paging?: { current: number; total: number };
+  errors?: Record<string, string> | string[];
+};
+
+type ApiTeam = { team: { id: number; name: string; code?: string | null; logo?: string | null } };
+type ApiSquad = { team: { id: number; name: string; logo?: string | null }; players: Array<{ id: number; name: string; age?: number | null; number?: number | null; position?: string | null; photo?: string | null }> };
+type ApiPlayerStats = {
+  player: { id: number; name: string; firstname?: string | null; lastname?: string | null; age?: number | null; birth?: { date?: string | null }; nationality?: string | null; height?: string | null; weight?: string | null; injured?: boolean; photo?: string | null };
+  statistics: Array<{
+    team?: { id?: number; name?: string; logo?: string };
+    league?: { id?: number; season?: number };
+    games?: { appearences?: number | null; lineups?: number | null; minutes?: number | null; position?: string | null; rating?: string | null };
+    shots?: { total?: number | null; on?: number | null };
+    goals?: { total?: number | null; assists?: number | null };
+    passes?: { total?: number | null; key?: number | null; accuracy?: number | null };
+    tackles?: { total?: number | null };
+    dribbles?: { attempts?: number | null; success?: number | null };
+  }>;
+};
+
+type ApiInjury = { player?: { id?: number; name?: string }; type?: string; reason?: string };
+
+function season() {
+  const configured = Number(process.env.SERIE_A_SEASON);
+  if (Number.isInteger(configured) && configured > 2020) return configured;
+  const now = new Date();
+  return now.getUTCMonth() >= 6 ? now.getUTCFullYear() : now.getUTCFullYear() - 1;
+}
+
+function previousSeason() {
+  return season() - 1;
+}
+
+function apiKey() {
+  const key = process.env.API_FOOTBALL_KEY;
+  if (!key) throw new Error("API_FOOTBALL_KEY non configurata");
+  return key;
+}
+
+const wait = (milliseconds: number) => new Promise((resolve) => setTimeout(resolve, milliseconds));
+
+async function request<T>(path: string, waitBefore = false): Promise<ApiResponse<T>> {
+  if (waitBefore) await wait(Number(process.env.API_FOOTBALL_INTERVAL_MS) || 6300);
+  const response = await fetch(`${API_BASE}${path}`, {
+    headers: { "x-apisports-key": apiKey() },
+    cache: "no-store",
+    signal: AbortSignal.timeout(25000),
+  });
+  if (!response.ok) throw new Error(`API-Football ${response.status}`);
+  const payload = (await response.json()) as ApiResponse<T>;
+  const errors = payload.errors;
+  if (Array.isArray(errors) ? errors.length : errors && Object.keys(errors).length) {
+    throw new Error(`API-Football: ${JSON.stringify(errors).slice(0, 240)}`);
+  }
+  return payload;
+}
+
+function keepExisting(base: SerieAPlayerRecord, existing?: SerieAPlayerRecord): SerieAPlayerRecord {
+  if (!existing) return base;
+  return {
+    ...existing,
+    ...base,
+    stats_season: existing.stats_season ?? null,
+    appearances: existing.appearances ?? null,
+    starts: existing.starts ?? null,
+    minutes: existing.minutes ?? null,
+    rating: existing.rating ?? null,
+    goals: existing.goals ?? null,
+    assists: existing.assists ?? null,
+    shots_total: existing.shots_total ?? null,
+    shots_on: existing.shots_on ?? null,
+    passes_total: existing.passes_total ?? null,
+    key_passes: existing.key_passes ?? null,
+    pass_accuracy: existing.pass_accuracy ?? null,
+    dribbles_attempts: existing.dribbles_attempts ?? null,
+    dribbles_success: existing.dribbles_success ?? null,
+    tackles: existing.tackles ?? null,
+    official_quote: existing.official_quote ?? null,
+    official_fvm: existing.official_fvm ?? null,
+    official_role: existing.official_role ?? null,
+  };
+}
+
+export async function syncSerieASquads() {
+  const existingRows = await getSerieAPlayers();
+  const existing = new Map(existingRows.map((player) => [player.provider_id, player]));
+  const teamsResult = await request<ApiTeam[]>(`/teams?league=${SERIE_A_LEAGUE_ID}&season=${season()}`);
+  const teams = teamsResult.response;
+  if (!teams.length) throw new Error(`Nessuna squadra disponibile per la stagione ${season()}`);
+
+  const players = new Map<number, SerieAPlayerRecord>();
+  let calls = 1;
+  for (const entry of teams) {
+    const squadResult = await request<ApiSquad[]>(`/players/squads?team=${entry.team.id}`, true);
+    calls += 1;
+    const squad = squadResult.response[0];
+    if (!squad) continue;
+    for (const player of squad.players ?? []) {
+      const role = roleFromPosition(player.position);
+      const base: SerieAPlayerRecord = {
+        provider_id: player.id,
+        name: player.name,
+        age: player.age ?? null,
+        photo_url: player.photo ?? null,
+        role,
+        position: player.position ?? null,
+        shirt_number: player.number ?? null,
+        team_id: entry.team.id,
+        team_name: entry.team.name,
+        team_code: entry.team.code ?? null,
+        team_logo: entry.team.logo ?? squad.team.logo ?? null,
+        quote_estimate: 1,
+        ds_score: 45,
+        potential_score: player.age && player.age <= 23 ? 66 : 48,
+        raw: player,
+      };
+      const merged = keepExisting(base, existing.get(player.id));
+      const scores = calculatePlayerScores(merged);
+      players.set(player.id, { ...merged, quote_estimate: scores.quoteEstimate, ds_score: scores.dsScore, potential_score: scores.potential });
+    }
+  }
+  await upsertSerieAPlayers([...players.values()]);
+  return { teams: teams.length, players: players.size, calls, season: season() };
+}
+
+export async function syncPreviousSeasonStats() {
+  const currentRows = await getSerieAPlayers();
+  if (!currentRows.length) throw new Error("Rosa Serie A non ancora sincronizzata");
+  const current = new Map(currentRows.map((player) => [player.provider_id, player]));
+  const first = await request<ApiPlayerStats[]>(`/players?league=${SERIE_A_LEAGUE_ID}&season=${previousSeason()}&page=1`);
+  const pages = Math.min(first.paging?.total ?? 1, 42);
+  const responses = [...first.response];
+  let calls = 1;
+  for (let page = 2; page <= pages; page += 1) {
+    const result = await request<ApiPlayerStats[]>(`/players?league=${SERIE_A_LEAGUE_ID}&season=${previousSeason()}&page=${page}`, true);
+    calls += 1;
+    responses.push(...result.response);
+  }
+
+  const injuryMap = new Map<number, { count: number; note: string | null }>();
+  try {
+    const injuriesResult = await request<ApiInjury[]>(`/injuries?league=${SERIE_A_LEAGUE_ID}&season=${season()}`, true);
+    calls += 1;
+    for (const injury of injuriesResult.response) {
+      const id = injury.player?.id;
+      if (!id) continue;
+      const previous = injuryMap.get(id) ?? { count: 0, note: null };
+      injuryMap.set(id, { count: previous.count + 1, note: injury.reason ?? injury.type ?? previous.note });
+    }
+  } catch {
+    // Alcuni piani gratuiti non includono gli infortuni della stagione corrente.
+    // Le statistiche sportive restano comunque utilizzabili.
+  }
+
+  let enriched = 0;
+  for (const item of responses) {
+    const base = current.get(item.player.id);
+    if (!base) continue;
+    const stats = item.statistics.find((entry) => entry.league?.id === SERIE_A_LEAGUE_ID) ?? item.statistics[0];
+    if (!stats) continue;
+    const injury = injuryMap.get(item.player.id);
+    const rating = Number.parseFloat(stats.games?.rating ?? "");
+    const updated: SerieAPlayerRecord = {
+      ...base,
+      firstname: item.player.firstname ?? base.firstname ?? null,
+      lastname: item.player.lastname ?? base.lastname ?? null,
+      age: item.player.age ?? base.age ?? null,
+      birth_date: item.player.birth?.date ?? base.birth_date ?? null,
+      nationality: item.player.nationality ?? base.nationality ?? null,
+      height: item.player.height ?? base.height ?? null,
+      weight: item.player.weight ?? base.weight ?? null,
+      photo_url: item.player.photo ?? base.photo_url ?? null,
+      stats_season: previousSeason(),
+      appearances: stats.games?.appearences ?? 0,
+      starts: stats.games?.lineups ?? 0,
+      minutes: stats.games?.minutes ?? 0,
+      rating: Number.isFinite(rating) ? rating : null,
+      goals: stats.goals?.total ?? 0,
+      assists: stats.goals?.assists ?? 0,
+      shots_total: stats.shots?.total ?? 0,
+      shots_on: stats.shots?.on ?? 0,
+      passes_total: stats.passes?.total ?? 0,
+      key_passes: stats.passes?.key ?? 0,
+      pass_accuracy: stats.passes?.accuracy ?? 0,
+      dribbles_attempts: stats.dribbles?.attempts ?? 0,
+      dribbles_success: stats.dribbles?.success ?? 0,
+      tackles: stats.tackles?.total ?? 0,
+      current_injured: item.player.injured ?? Boolean(injury),
+      injuries_count: injury?.count ?? 0,
+      injury_note: injury?.note ?? null,
+      raw: item,
+    };
+    const scores = calculatePlayerScores(updated);
+    current.set(item.player.id, { ...updated, quote_estimate: scores.quoteEstimate, ds_score: scores.dsScore, potential_score: scores.potential });
+    enriched += 1;
+  }
+  await upsertSerieAPlayers([...current.values()]);
+  return { players: current.size, enriched, pages, calls, statsSeason: previousSeason() };
+}

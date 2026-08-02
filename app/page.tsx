@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 
 type Role = "P" | "D" | "C" | "A";
-type Tab = "radar" | "mercato" | "confronta" | "ai" | "fonti";
+type Tab = "radar" | "rosa" | "mercato" | "confronta" | "ai" | "fonti";
 
 type AiPick = { player: string; role: string; tier: "Stella" | "Low-cost"; maxBid: number; reason: string; risk: string };
 type AiPlan = { title: string; formation: string; budget: number; estimatedSpend: number; starsUsed: number; stars: AiPick[]; lowCost: AiPick[]; tacticalNote: string; budgetRule: string };
@@ -15,6 +15,13 @@ type DailyReport = {
   lowCostWatch: Array<{ player: string; role: string; reason: string }>;
   alerts: string[];
   marketPulse: string;
+};
+type LivePlayer = {
+  id: number; name: string; age: number | null; nationality: string | null; photoUrl: string | null; role: Role; position: string | null; shirtNumber: number | null;
+  teamId: number; team: string; teamCode: string | null; teamLogo: string | null; statsSeason: number | null; appearances: number; starts: number; minutes: number;
+  rating: number | null; goals: number; assists: number; shotsTotal: number; shotsOn: number; passesTotal: number; keyPasses: number; passAccuracy: number;
+  dribblesAttempts: number; dribblesSuccess: number; tackles: number; injured: boolean; injuries: number; injuryNote: string | null; quoteEstimate: number;
+  officialQuote: number | null; officialFvm: number | null; officialRole: string | null; score: number; potential: number; updatedAt: string | null;
 };
 
 type Player = {
@@ -103,6 +110,16 @@ export default function Home() {
   const [aiError, setAiError] = useState("");
   const [dailyReport, setDailyReport] = useState<DailyReport | null>(null);
   const [reportStored, setReportStored] = useState(false);
+  const [livePlayers, setLivePlayers] = useState<LivePlayer[]>([]);
+  const [rosterSource, setRosterSource] = useState<"api-football" | "demo" | null>(null);
+  const [rosterMessage, setRosterMessage] = useState("");
+  const [rosterLoading, setRosterLoading] = useState(false);
+  const [rosterQuery, setRosterQuery] = useState("");
+  const [rosterRole, setRosterRole] = useState<Role | "Tutti">("Tutti");
+  const [rosterAge, setRosterAge] = useState<"Tutti" | "U21" | "U23" | "U25">("Tutti");
+  const [rosterTeam, setRosterTeam] = useState("Tutte");
+  const [rosterSort, setRosterSort] = useState<"score" | "potential" | "value">("score");
+  const [rosterPage, setRosterPage] = useState(0);
 
   useEffect(() => {
     const saved = window.localStorage.getItem("undici-shortlist");
@@ -126,6 +143,22 @@ export default function Home() {
       .catch(() => setDailyReport(null));
   }, [tab, dailyReport]);
 
+  useEffect(() => {
+    if (tab !== "rosa" || rosterSource || rosterLoading) return;
+    // Il caricamento parte solo quando l'utente apre per la prima volta la rosa live.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setRosterLoading(true);
+    fetch("/api/players", { cache: "no-store" })
+      .then((response) => response.json())
+      .then((data: { players?: LivePlayer[]; source?: "api-football" | "demo"; message?: string }) => {
+        setLivePlayers(data.players ?? []);
+        setRosterSource(data.source ?? "demo");
+        setRosterMessage(data.message ?? "");
+      })
+      .catch(() => { setRosterSource("demo"); setRosterMessage("Rosa completa temporaneamente non disponibile."); })
+      .finally(() => setRosterLoading(false));
+  }, [tab, rosterSource, rosterLoading]);
+
   const filtered = useMemo(() => players
     .filter(p => role === "Tutti" || p.role === role)
     .filter(p => `${p.name} ${p.club}`.toLowerCase().includes(query.toLowerCase()))
@@ -133,6 +166,16 @@ export default function Home() {
 
   const selected = players.find(p => p.id === selectedId) ?? players[0];
   const comparedPlayers = compare.map(id => players.find(p => p.id === id)).filter(Boolean) as Player[];
+  const rosterTeams = useMemo(() => [...new Set(livePlayers.map((player) => player.team))].sort((a, b) => a.localeCompare(b, "it")), [livePlayers]);
+  const filteredRoster = useMemo(() => livePlayers
+    .filter((player) => rosterRole === "Tutti" || player.role === rosterRole)
+    .filter((player) => rosterTeam === "Tutte" || player.team === rosterTeam)
+    .filter((player) => rosterAge === "Tutti" || (player.age !== null && player.age <= Number(rosterAge.slice(1))))
+    .filter((player) => `${player.name} ${player.team}`.toLocaleLowerCase("it").includes(rosterQuery.toLocaleLowerCase("it")))
+    .sort((a, b) => rosterSort === "potential" ? b.potential - a.potential : rosterSort === "value" ? (b.score + b.potential - b.quoteEstimate * 2) - (a.score + a.potential - a.quoteEstimate * 2) : b.score - a.score), [livePlayers, rosterRole, rosterTeam, rosterAge, rosterQuery, rosterSort]);
+  const rosterPageSize = 36;
+  const rosterPages = Math.max(1, Math.ceil(filteredRoster.length / rosterPageSize));
+  const rosterPagePlayers = filteredRoster.slice(rosterPage * rosterPageSize, (rosterPage + 1) * rosterPageSize);
 
   function toggleShortlist(id: number) {
     setShortlist(current => current.includes(id) ? current.filter(item => item !== id) : [...current, id]);
@@ -187,6 +230,7 @@ export default function Home() {
         </button>
         <nav aria-label="Navigazione principale">
           <button className={tab === "radar" ? "active" : ""} onClick={() => setTab("radar")}>Radar asta</button>
+          <button className={tab === "rosa" ? "active" : ""} onClick={() => setTab("rosa")}>Serie A</button>
           <button className={tab === "mercato" ? "active" : ""} onClick={() => setTab("mercato")}>Trasferimenti</button>
           <button className={tab === "confronta" ? "active" : ""} onClick={() => setTab("confronta")}>Confronta <span className="nav-count">{compare.length}</span></button>
           <button className={tab === "ai" ? "active" : ""} onClick={() => setTab("ai")}>DS AI <span className="ai-nav-dot" /></button>
@@ -275,6 +319,41 @@ export default function Home() {
             </aside>
           </section>
         </>
+      )}
+
+      {tab === "rosa" && (
+        <section className="page-section roster-page">
+          <div className="page-heading roster-heading">
+            <div><p className="eyebrow">DATABASE SERIE A · 2026/27</p><h1>Tutti i giocatori.<br />Prima i giovani.</h1></div>
+            <div className="roster-intro"><p>Rose complete, rendimento precedente e potenziale. Le quotazioni sono indicate come ufficiali solo quando provengono dal Listone; fino ad allora vedi la stima UNDICI.</p><div className={`roster-source ${rosterSource ?? "loading"}`}><span />{rosterLoading ? "Caricamento rosa…" : rosterSource === "api-football" ? `${livePlayers.length} giocatori · API-Football live` : "Anteprima · prima sincronizzazione in attesa"}</div></div>
+          </div>
+          {rosterMessage && <div className="roster-notice"><b>Sincronizzazione programmata</b><span>{rosterMessage}</span></div>}
+          <div className="roster-toolbar">
+            <label className="roster-search"><span>⌕</span><input value={rosterQuery} onChange={(event) => { setRosterQuery(event.target.value); setRosterPage(0); }} placeholder="Cerca giocatore o squadra" aria-label="Cerca nella rosa Serie A" /></label>
+            <select value={rosterTeam} onChange={(event) => { setRosterTeam(event.target.value); setRosterPage(0); }} aria-label="Filtra per squadra"><option>Tutte</option>{rosterTeams.map((team) => <option key={team}>{team}</option>)}</select>
+            <select value={rosterAge} onChange={(event) => { setRosterAge(event.target.value as typeof rosterAge); setRosterPage(0); }} aria-label="Filtra per età"><option>Tutti</option><option>U21</option><option>U23</option><option>U25</option></select>
+            <select value={rosterSort} onChange={(event) => { setRosterSort(event.target.value as typeof rosterSort); setRosterPage(0); }} aria-label="Ordina giocatori"><option value="score">DS score</option><option value="potential">Potenziale giovani</option><option value="value">Qualità / prezzo</option></select>
+          </div>
+          <div className="roster-role-filters">
+            {(["Tutti", "P", "D", "C", "A"] as const).map((item) => <button key={item} className={rosterRole === item ? "active" : ""} onClick={() => { setRosterRole(item); setRosterPage(0); }}>{item === "Tutti" ? "Tutti i ruoli" : roleLabels[item]}<span>{item === "Tutti" ? livePlayers.length : livePlayers.filter((player) => player.role === item).length}</span></button>)}
+          </div>
+          <div className="roster-result-line"><span><b>{filteredRoster.length}</b> profili trovati</span><small>{rosterSource === "api-football" ? "Statistiche ultima stagione disponibile" : "Dati dimostrativi"}</small></div>
+          <div className="roster-grid">
+            {rosterPagePlayers.map((player) => <article className="roster-card" key={player.id}>
+              <div className="roster-card-top">
+                {player.photoUrl ? <img src={player.photoUrl} alt="" loading="lazy" /> : <span className="roster-initials">{player.name.split(" ").map((part) => part[0]).slice(-2).join("")}</span>}
+                <div><span className="role-chip">{roleLabels[player.role]}</span><h2>{player.name}</h2><p>{player.team}{player.age ? ` · ${player.age} anni` : ""}</p></div>
+                {player.teamLogo && <img className="team-mini-logo" src={player.teamLogo} alt="" loading="lazy" />}
+              </div>
+              <div className="roster-tags">{player.age && player.age <= 23 && <span className="young-tag">U23</span>}{player.potential >= 80 && <span className="talent-tag">ALTO POTENZIALE</span>}{player.injured && <span className="injury-tag">STOP</span>}</div>
+              <div className="roster-scoreline"><div><small>DS SCORE</small><strong>{Math.round(player.score)}</strong></div><div><small>POTENZIALE</small><strong>{Math.round(player.potential)}</strong></div><div className="roster-quote"><small>{player.officialQuote !== null ? "QUOTA UFFICIALE" : "STIMA UNDICI"}</small><strong>{Math.round(player.officialQuote ?? player.quoteEstimate)}</strong><span>crediti</span></div></div>
+              <div className="roster-stats"><span><small>Pres.</small><b>{player.appearances}</b></span><span><small>Gol</small><b>{player.goals}</b></span><span><small>Assist</small><b>{player.assists}</b></span><span><small>Tiri p.</small><b>{player.shotsOn}</b></span><span><small>Pass. chiave</small><b>{player.keyPasses}</b></span><span><small>Dribbling</small><b>{player.dribblesSuccess}</b></span></div>
+              <div className="roster-card-foot"><span>{player.statsSeason ? `Numeri ${player.statsSeason}/${String(player.statsSeason + 1).slice(-2)}` : "Dati rosa attuale"}</span><b className={player.injured ? "risk-high" : "risk-low"}>{player.injured ? player.injuryNote ?? "Da verificare" : "Disponibile"}</b></div>
+            </article>)}
+            {!rosterLoading && rosterPagePlayers.length === 0 && <div className="roster-empty">Nessun giocatore corrisponde ai filtri scelti.</div>}
+          </div>
+          {filteredRoster.length > rosterPageSize && <div className="roster-pagination"><button disabled={rosterPage === 0} onClick={() => setRosterPage((page) => Math.max(0, page - 1))}>← Precedenti</button><span>Pagina {rosterPage + 1} di {rosterPages}</span><button disabled={rosterPage + 1 >= rosterPages} onClick={() => setRosterPage((page) => Math.min(rosterPages - 1, page + 1))}>Successivi →</button></div>}
+        </section>
       )}
 
       {tab === "mercato" && (

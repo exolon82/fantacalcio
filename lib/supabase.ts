@@ -1,3 +1,5 @@
+import type { SerieAPlayerRecord } from "./serie-a";
+
 export type StoredDailyReport = {
   report_date: string;
   payload: unknown;
@@ -51,3 +53,28 @@ export async function saveDailyReport(report: StoredDailyReport) {
   return true;
 }
 
+export async function getSerieAPlayers(): Promise<SerieAPlayerRecord[]> {
+  const settings = config();
+  if (!settings) return [];
+  const response = await fetch(`${settings.url}/rest/v1/serie_a_players?select=*&order=ds_score.desc&limit=700`, {
+    headers: headers(settings.key),
+    cache: "no-store",
+  });
+  if (response.status === 404) return [];
+  if (!response.ok) throw new Error(`Supabase players read ${response.status}: ${(await response.text()).slice(0, 160)}`);
+  return (await response.json()) as SerieAPlayerRecord[];
+}
+
+export async function upsertSerieAPlayers(players: SerieAPlayerRecord[]) {
+  const settings = config();
+  if (!settings) throw new Error("Supabase non configurato");
+  for (let index = 0; index < players.length; index += 100) {
+    const batch = players.slice(index, index + 100).map((player) => ({ ...player, updated_at: new Date().toISOString() }));
+    const response = await fetch(`${settings.url}/rest/v1/serie_a_players?on_conflict=provider_id`, {
+      method: "POST",
+      headers: { ...headers(settings.key), Prefer: "resolution=merge-duplicates,return=minimal" },
+      body: JSON.stringify(batch),
+    });
+    if (!response.ok) throw new Error(`Supabase players write ${response.status}: ${(await response.text()).slice(0, 220)}`);
+  }
+}

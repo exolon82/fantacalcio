@@ -6,6 +6,14 @@
   "devCommand": "npx next dev",
   "crons": [
     {
+      "path": "/api/cron/sync-squads",
+      "schedule": "0 2 * * *"
+    },
+    {
+      "path": "/api/cron/sync-stats",
+      "schedule": "0 4 * * *"
+    },
+    {
       "path": "/api/cron/daily-report",
       "schedule": "0 6 * * *"
     }

@@ -1,5 +1,6 @@
 import { askScoutAI } from "./ai";
 import { scoutPlayers } from "./scouting-data";
+import { getSerieAPlayers } from "./supabase";
 
 export type NewsSource = { title: string; url: string; publishedAt: string; description: string };
 export type DailyReport = {
@@ -76,13 +77,22 @@ export function fallbackDailyReport(date = new Date().toISOString().slice(0, 10)
 export async function generateDailyReport(date = new Date().toISOString().slice(0, 10)) {
   let sources: NewsSource[] = [];
   try { sources = await fetchYoungSerieANews(); } catch { sources = []; }
+  let youngPlayerSignals: unknown[] = scoutPlayers.filter((player) => player.age <= 25);
+  try {
+    const livePlayers = await getSerieAPlayers();
+    if (livePlayers.length) youngPlayerSignals = livePlayers
+      .filter((player) => (player.age ?? 99) <= 25)
+      .sort((a, b) => b.potential_score - a.potential_score)
+      .slice(0, 35)
+      .map((player) => ({ name: player.name, age: player.age, club: player.team_name, role: player.role, potential: player.potential_score, score: player.ds_score, quote: player.official_quote ?? player.quote_estimate, quoteType: player.official_quote ? "ufficiale" : "stima UNDICI", appearances: player.appearances, minutes: player.minutes, goals: player.goals, assists: player.assists, injured: player.current_injured }));
+  } catch { /* Il report conserva i segnali dimostrativi se il database non è pronto. */ }
 
   const generated = await askScoutAI<DailyReport>({
     model: process.env.OPENAI_REPORT_MODEL ?? "gpt-5.6-luna",
     schema: reportSchema,
     schemaName: "daily_serie_a_report",
     instructions: "Sei il Direttore Sportivo AI di un'app di fantacalcio. Produci in italiano un report prudente e operativo sui giovani della Serie A. Separa fatti, segnali e inferenze; non inventare trasferimenti, infortuni o titolarità. Dai priorità a possibili stelle Under 24 e opportunità low-cost. La strategia d'asta ammette al massimo due stelle totali, quindi non consigliare una rosa di soli campioni. Usa esclusivamente i dati forniti.",
-    input: { date, news: sources, demoPlayerSignals: scoutPlayers.filter((player) => player.age <= 26) },
+    input: { date, news: sources, youngPlayerSignals },
   });
 
   return { report: generated ? { ...generated, date } : fallbackDailyReport(date), sources, aiConfigured: Boolean(process.env.OPENAI_API_KEY) };
