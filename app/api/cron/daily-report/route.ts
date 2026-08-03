@@ -3,7 +3,7 @@ import { generateDailyReport } from "@/lib/reports";
 import { saveDailyReport } from "@/lib/supabase";
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 60;
+export const maxDuration = 90;
 
 export async function GET(request: Request) {
   const secret = process.env.CRON_SECRET;

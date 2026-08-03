@@ -4,7 +4,7 @@ import { isStar, scoutPlayers, type ScoutPlayer } from "@/lib/scouting-data";
 import { getSerieAPlayers } from "@/lib/supabase";
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 60;
+export const maxDuration = 90;
 
 type Pick = { player: string; role: string; tier: "Stella" | "Low-cost"; maxBid: number; reason: string; risk: string };
 type AiPlan = {
@@ -76,7 +76,7 @@ async function loadCandidates(): Promise<ScoutPlayer[]> {
     const top = [...mapped].sort((a, b) => b.score - a.score).slice(0, 55);
     const value = [...mapped].sort((a, b) => (b.score + potential(b) - b.price * 1.5) - (a.score + potential(a) - a.price * 1.5)).slice(0, 45);
     const youth = [...mapped].filter((player) => player.age <= 25).sort((a, b) => potential(b) - potential(a)).slice(0, 45);
-    return [...new Map([...top, ...value, ...youth].map((player) => [player.id, player])).values()].slice(0, 130);
+    return [...new Map([...top, ...value, ...youth].map((player) => [player.id, player])).values()].slice(0, 70);
   } catch {
     return scoutPlayers;
   }
@@ -150,6 +150,8 @@ export async function POST(request: Request) {
     const candidates = await loadCandidates();
     const generated = await askScoutAI<AiPlan>({
       model: process.env.OPENAI_SCOUT_MODEL ?? "gpt-5.6-sol",
+      reasoningEffort: "low",
+      timeoutMs: 80000,
       schema: planSchema,
       schemaName: "fantacalcio_auction_plan",
       instructions: "Agisci come un Direttore Sportivo esperto di fantacalcio. Ottimizza il valore, non collezionare nomi famosi. Vincolo assoluto: massimo 2 stelle complessive. Tutti gli altri suggerimenti devono essere low-cost. Scegli solo giocatori presenti nei dati, rispetta il budget, diversifica i ruoli e valorizza giovani Under 23/25 con reali possibilità di minuti. Considera gol, assist, tiri, passaggi, dribbling, infortuni, titolarità, prezzo e potenziale. La quota può essere una stima UNDICI finché quella ufficiale non è disponibile: non confonderle. Scrivi in italiano, indica tetti disciplinati e non promettere risultati.",

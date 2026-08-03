@@ -122,6 +122,8 @@ export default function Home() {
   const [aiError, setAiError] = useState("");
   const [dailyReport, setDailyReport] = useState<DailyReport | null>(null);
   const [reportStored, setReportStored] = useState(false);
+  const [reportGenerating, setReportGenerating] = useState(false);
+  const [reportError, setReportError] = useState("");
   const [marketNews, setMarketNews] = useState<MarketNewsItem[]>([]);
   const [marketNewsSource, setMarketNewsSource] = useState<"sosfanta" | "gnews" | "unavailable" | null>(null);
   const [marketNewsLoading, setMarketNewsLoading] = useState(true);
@@ -244,6 +246,22 @@ export default function Home() {
       setAiError(error instanceof Error ? error.message : "Connessione AI non disponibile.");
     } finally {
       setAiLoading(false);
+    }
+  }
+
+  async function generateReportNow() {
+    setReportGenerating(true);
+    setReportError("");
+    try {
+      const response = await fetch("/api/reports/generate", { method: "POST" });
+      const data = await response.json() as { report?: DailyReport; stored?: boolean; error?: string };
+      if (!response.ok || !data.report) throw new Error(data.error ?? "Il report AI non è stato completato.");
+      setDailyReport(data.report);
+      setReportStored(Boolean(data.stored));
+    } catch (error) {
+      setReportError(error instanceof Error ? error.message : "Connessione AI non disponibile.");
+    } finally {
+      setReportGenerating(false);
     }
   }
 
@@ -483,7 +501,9 @@ export default function Home() {
           )}
 
           <section className="daily-report">
-            <div className="report-top"><div><p className="eyebrow">REPORT GIOVANI · OGNI MATTINA</p><h2>{dailyReport?.headline ?? "Caricamento del briefing…"}</h2></div><span className={reportStored ? "report-live" : "report-demo"}>{reportStored ? "ARCHIVIATO SU SUPABASE" : "ANTEPRIMA DEMO"}</span></div>
+            <div className="report-top"><div><p className="eyebrow">REPORT GIOVANI · OGNI MATTINA</p><h2>{dailyReport?.headline ?? "Caricamento del briefing…"}</h2></div><span className={reportStored ? "report-live" : "report-demo"}>{reportStored ? "ARCHIVIATO SU SUPABASE" : "PRIMO REPORT DA GENERARE"}</span></div>
+            {!reportStored && <div className="report-bootstrap"><div><b>Credito OpenAI attivo</b><span>Genera ora il primo report; dopo continuerà automaticamente una volta al giorno.</span></div><button onClick={generateReportNow} disabled={reportGenerating}>{reportGenerating ? "Analisi in corso…" : "Genera il report AI ora"}</button></div>}
+            {reportError && <p className="report-error">{reportError}</p>}
             {dailyReport && <>
               <p className="report-summary">{dailyReport.summary}</p>
               <div className="report-grid">

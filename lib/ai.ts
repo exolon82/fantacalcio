@@ -19,12 +19,16 @@ export async function askScoutAI<T>({
   schema,
   schemaName,
   model,
+  reasoningEffort = "low",
+  timeoutMs = 80000,
 }: {
   input: unknown;
   instructions: string;
   schema: JsonSchema;
   schemaName: string;
   model: string;
+  reasoningEffort?: "low" | "medium" | "high";
+  timeoutMs?: number;
 }): Promise<T | null> {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) return null;
@@ -37,7 +41,7 @@ export async function askScoutAI<T>({
     },
     body: JSON.stringify({
       model,
-      reasoning: { effort: "medium" },
+      reasoning: { effort: reasoningEffort },
       instructions,
       input: JSON.stringify(input),
       store: false,
@@ -51,7 +55,7 @@ export async function askScoutAI<T>({
         },
       },
     }),
-    signal: AbortSignal.timeout(45000),
+    signal: AbortSignal.timeout(timeoutMs),
   });
 
   if (!response.ok) {
@@ -64,4 +68,3 @@ export async function askScoutAI<T>({
   if (!text) throw new Error("La risposta AI non contiene testo strutturato.");
   return JSON.parse(text) as T;
 }
-

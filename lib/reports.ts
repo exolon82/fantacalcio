@@ -89,6 +89,8 @@ export async function generateDailyReport(date = new Date().toISOString().slice(
 
   const generated = await askScoutAI<DailyReport>({
     model: process.env.OPENAI_REPORT_MODEL ?? "gpt-5.6-luna",
+    reasoningEffort: "low",
+    timeoutMs: 80000,
     schema: reportSchema,
     schemaName: "daily_serie_a_report",
     instructions: "Sei il Direttore Sportivo AI di un'app di fantacalcio. Produci in italiano un report prudente e operativo sui giovani della Serie A. Separa fatti, segnali e inferenze; non inventare trasferimenti, infortuni o titolarità. Dai priorità a possibili stelle Under 24 e opportunità low-cost. La strategia d'asta ammette al massimo due stelle totali, quindi non consigliare una rosa di soli campioni. Usa esclusivamente i dati forniti.",
