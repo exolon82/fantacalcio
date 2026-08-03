@@ -11,6 +11,7 @@ type MarketNewsItem = {
 };
 
 const SOS_FANTA_FEED = "https://www.sosfanta.com/feed/";
+const SOS_FANTA_API = "https://www.sosfanta.com/wp-json/wp/v2/posts?per_page=12&_fields=link,date,title,excerpt";
 
 function decodeEntities(value: string) {
   return value
@@ -54,6 +55,33 @@ function parseSosFanta(xml: string): MarketNewsItem[] {
   }));
 }
 
+async function fetchSosFantaApi(): Promise<MarketNewsItem[]> {
+  const response = await fetch(SOS_FANTA_API, {
+    headers: { Accept: "application/json", "User-Agent": "UNDICI Fantacalcio Scout/1.0" },
+    next: { revalidate: 600 },
+    signal: AbortSignal.timeout(12000),
+  });
+  if (!response.ok) return [];
+  const posts = (await response.json()) as Array<{
+    link?: string;
+    date?: string;
+    title?: { rendered?: string };
+    excerpt?: { rendered?: string };
+  }>;
+  return posts.flatMap((post) => {
+    const title = textOnly(post.title?.rendered ?? "");
+    const url = post.link ?? "";
+    if (!title || !url.startsWith("https://www.sosfanta.com/")) return [];
+    return [{
+      title,
+      url,
+      publishedAt: post.date ?? "",
+      description: textOnly(post.excerpt?.rendered ?? "").slice(0, 190),
+      source: "SOS Fanta",
+    }];
+  }).slice(0, 6);
+}
+
 async function fetchGNewsFallback(): Promise<MarketNewsItem[]> {
   const key = process.env.GNEWS_API_KEY;
   if (!key) return [];
@@ -75,6 +103,11 @@ async function fetchGNewsFallback(): Promise<MarketNewsItem[]> {
 
 export async function GET() {
   try {
+    const news = await fetchSosFantaApi();
+    if (news.length) return NextResponse.json({ news, source: "sosfanta", updatedAt: new Date().toISOString() });
+  } catch { /* Il feed RSS resta la seconda via di accesso a SOS Fanta. */ }
+
+  try {
     const response = await fetch(SOS_FANTA_FEED, {
       headers: { Accept: "application/rss+xml, application/xml;q=0.9", "User-Agent": "UNDICI Fantacalcio Scout/1.0" },
       next: { revalidate: 600 },
@@ -86,6 +119,10 @@ export async function GET() {
     }
   } catch { /* GNews è il fallback autorizzato quando il feed non risponde. */ }
 
-  const news = await fetchGNewsFallback();
-  return NextResponse.json({ news, source: news.length ? "gnews" : "unavailable", updatedAt: new Date().toISOString() });
+  try {
+    const news = await fetchGNewsFallback();
+    return NextResponse.json({ news, source: news.length ? "gnews" : "unavailable", updatedAt: new Date().toISOString() });
+  } catch {
+    return NextResponse.json({ news: [], source: "unavailable", updatedAt: new Date().toISOString() });
+  }
 }
