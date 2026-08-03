@@ -20,7 +20,14 @@ type AiPlan = {
 };
 
 const LEAGUE_BUDGET = 250;
-const ORIGINAL_PRICE_REFERENCE_BUDGET = 500;
+const STARTING_ELEVEN_SIZE = 11;
+const ROLE_ORDER = ["P", "D", "C", "A"] as const;
+const FORMATION_ROLES: Record<string, Record<(typeof ROLE_ORDER)[number], number>> = {
+  "3-4-3": { P: 1, D: 3, C: 4, A: 3 },
+  "3-5-2": { P: 1, D: 3, C: 5, A: 2 },
+  "4-3-3": { P: 1, D: 4, C: 3, A: 3 },
+  "4-4-2": { P: 1, D: 4, C: 4, A: 2 },
+};
 
 const pickProperties = {
   player: { type: "string" }, role: { type: "string", enum: ["P", "D", "C", "A"] }, tier: { type: "string", enum: ["Stella", "Low-cost"] }, maxBid: { type: "integer", minimum: 1 }, reason: { type: "string" }, risk: { type: "string" },
@@ -31,7 +38,7 @@ const planSchema = {
   properties: {
     title: { type: "string" }, formation: { type: "string" }, budget: { type: "integer" }, estimatedSpend: { type: "integer" }, starsUsed: { type: "integer", minimum: 0, maximum: 2 },
     stars: { type: "array", maxItems: 2, items: { type: "object", additionalProperties: false, required: Object.keys(pickProperties), properties: pickProperties } },
-    lowCost: { type: "array", minItems: 5, maxItems: 9, items: { type: "object", additionalProperties: false, required: Object.keys(pickProperties), properties: pickProperties } },
+    lowCost: { type: "array", minItems: 9, maxItems: 10, items: { type: "object", additionalProperties: false, required: Object.keys(pickProperties), properties: pickProperties } },
     tacticalNote: { type: "string" }, budgetRule: { type: "string" },
   },
 };
@@ -99,49 +106,95 @@ function toPick(player: ScoutPlayer, tier: Pick["tier"], budgetFactor = 1): Pick
   };
 }
 
-function fallbackPlan(budget: number, formation: string, candidates: ScoutPlayer[]): AiPlan {
-  const factor = budget / ORIGINAL_PRICE_REFERENCE_BUDGET;
-  const stars = candidates.filter(isStar).sort((a, b) => b.score - a.score).slice(0, 2).map((player) => toPick(player, "Stella", factor));
-  const chosenStars = new Set(stars.map((pick) => pick.player));
-  const lowCost = candidates
-    .filter((player) => !isStar(player) && !chosenStars.has(player.name))
-    .sort((a, b) => (b.score + potential(b) - b.price * 1.7) - (a.score + potential(a) - a.price * 1.7))
-    .slice(0, 8)
-    .map((player) => toPick(player, "Low-cost", factor));
-  const safeStars = stars.length ? stars : scoutPlayers.filter((player) => ["Lautaro Martínez", "Scott McTominay"].includes(player.name)).map((player) => toPick(player, "Stella", factor));
-  const safeLowCost = lowCost.length >= 5 ? lowCost : scoutPlayers.filter((player) => ["Mile Svilar", "Alessandro Bastoni", "Giovanni Di Lorenzo", "Christian Pulisic", "Riccardo Orsolini", "Ange-Yoan Bonny"].includes(player.name)).map((player) => toPick(player, "Low-cost", factor));
-  return {
-    title: "Due leader, il resto è valore",
-    formation,
-    budget,
-    estimatedSpend: [...safeStars, ...safeLowCost].reduce((sum, player) => sum + player.maxBid, 0),
-    starsUsed: Math.min(safeStars.length, 2),
-    stars: safeStars.slice(0, 2),
-    lowCost: safeLowCost,
-    tacticalNote: "Blocca due punti fermi e conserva margine per titolari sottovalutati e giovani ad alto potenziale.",
-    budgetRule: "Mai più di 2 stelle. Stop al tetto indicato: l’asta si vince sui low-cost, non sul terzo nome di richiamo.",
-  };
+function valueRank(player: ScoutPlayer) {
+  return player.score + potential(player) + player.starter * .35 - player.price * 1.25 - player.injuries * 4;
 }
 
-function sanitisePlan(plan: AiPlan | null, budget: number, formation: string, candidates: ScoutPlayer[]): AiPlan {
-  if (!plan) return fallbackPlan(budget, formation, candidates);
-  const byName = new Map(candidates.map((player) => [player.name.toLocaleLowerCase("it"), player]));
-  const validStars = plan.stars.filter((pick) => {
-    const player = byName.get(pick.player.toLocaleLowerCase("it"));
-    return player && isStar(player);
-  }).slice(0, 2).map((pick) => ({ ...pick, tier: "Stella" as const }));
-  const starNames = new Set(validStars.map((pick) => pick.player.toLocaleLowerCase("it")));
-  const validLowCost = plan.lowCost.filter((pick) => {
-    const player = byName.get(pick.player.toLocaleLowerCase("it"));
-    return player && !isStar(player) && !starNames.has(pick.player.toLocaleLowerCase("it"));
-  }).slice(0, 9).map((pick) => ({ ...pick, tier: "Low-cost" as const }));
-  if (validStars.length === 0 || validLowCost.length < 5) return fallbackPlan(budget, formation, candidates);
-  const proposedSpend = [...validStars, ...validLowCost].reduce((sum, pick) => sum + pick.maxBid, 0);
-  const nucleusLimit = Math.floor(budget * .72);
-  const bidFactor = proposedSpend > nucleusLimit ? nucleusLimit / proposedSpend : 1;
-  const cappedStars = validStars.map((pick) => ({ ...pick, maxBid: Math.max(1, Math.floor(pick.maxBid * bidFactor)) }));
-  const cappedLowCost = validLowCost.map((pick) => ({ ...pick, maxBid: Math.max(1, Math.floor(pick.maxBid * bidFactor)) }));
-  return { ...plan, budget, formation, stars: cappedStars, starsUsed: cappedStars.length, lowCost: cappedLowCost, estimatedSpend: [...cappedStars, ...cappedLowCost].reduce((sum, pick) => sum + pick.maxBid, 0) };
+function balanceSpend(picks: Pick[], targetSpend: number): Pick[] {
+  const rawTotal = picks.reduce((sum, pick) => sum + Math.max(1, pick.maxBid), 0);
+  if (!rawTotal) return picks;
+  const scale = targetSpend / rawTotal;
+  const bids = picks.map((pick) => Math.max(1, Math.floor(pick.maxBid * scale)));
+  let difference = targetSpend - bids.reduce((sum, bid) => sum + bid, 0);
+  const priority = picks.map((_, index) => index).sort((a, b) => picks[b].maxBid - picks[a].maxBid);
+  let cursor = 0;
+  while (difference !== 0 && priority.length) {
+    const index = priority[cursor % priority.length];
+    if (difference > 0) {
+      bids[index] += 1;
+      difference -= 1;
+    } else if (bids[index] > 1) {
+      bids[index] -= 1;
+      difference += 1;
+    }
+    cursor += 1;
+  }
+  return picks.map((pick, index) => ({ ...pick, maxBid: bids[index] }));
+}
+
+function sanitisePlan(plan: AiPlan | null, budget: number, formation: string, risk: string, candidates: ScoutPlayer[]): AiPlan {
+  const pool = [...new Map([...candidates, ...scoutPlayers].map((player) => [player.name.toLocaleLowerCase("it"), player])).values()];
+  const byName = new Map(pool.map((player) => [player.name.toLocaleLowerCase("it"), player]));
+  const proposedPicks = new Map([...(plan?.stars ?? []), ...(plan?.lowCost ?? [])].map((pick) => [pick.player.toLocaleLowerCase("it"), pick]));
+  const selected = new Set<string>();
+
+  const starCandidates = [
+    ...(plan?.stars ?? []).map((pick) => byName.get(pick.player.toLocaleLowerCase("it"))).filter((player): player is ScoutPlayer => Boolean(player && isStar(player))),
+    ...pool.filter(isStar).sort((a, b) => valueRank(b) - valueRank(a)),
+  ];
+  const starPlayers = starCandidates.filter((player) => {
+    const key = player.name.toLocaleLowerCase("it");
+    if (selected.has(key)) return false;
+    selected.add(key);
+    return true;
+  }).slice(0, 2);
+
+  const lowCostPlayers: ScoutPlayer[] = [];
+  const requirements = FORMATION_ROLES[formation] ?? FORMATION_ROLES["3-4-3"];
+  for (const role of ROLE_ORDER) {
+    const starsInRole = starPlayers.filter((player) => player.role === role).length;
+    const needed = Math.max(0, requirements[role] - starsInRole);
+    const roleCandidates = pool
+      .filter((player) => player.role === role && !isStar(player) && !selected.has(player.name.toLocaleLowerCase("it")))
+      .sort((a, b) => Number(proposedPicks.has(b.name.toLocaleLowerCase("it"))) - Number(proposedPicks.has(a.name.toLocaleLowerCase("it"))) || valueRank(b) - valueRank(a));
+    for (const player of roleCandidates.slice(0, needed)) {
+      selected.add(player.name.toLocaleLowerCase("it"));
+      lowCostPlayers.push(player);
+    }
+  }
+
+  const remaining = pool
+    .filter((player) => !isStar(player) && !selected.has(player.name.toLocaleLowerCase("it")))
+    .sort((a, b) => Number(proposedPicks.has(b.name.toLocaleLowerCase("it"))) - Number(proposedPicks.has(a.name.toLocaleLowerCase("it"))) || valueRank(b) - valueRank(a));
+  for (const player of remaining) {
+    if (starPlayers.length + lowCostPlayers.length >= STARTING_ELEVEN_SIZE) break;
+    selected.add(player.name.toLocaleLowerCase("it"));
+    lowCostPlayers.push(player);
+  }
+
+  const makePick = (player: ScoutPlayer, tier: Pick["tier"]): Pick => {
+    const proposed = proposedPicks.get(player.name.toLocaleLowerCase("it"));
+    const baseline = toPick(player, tier);
+    return proposed ? { ...baseline, reason: proposed.reason || baseline.reason, risk: proposed.risk || baseline.risk } : baseline;
+  };
+  const initialStars = starPlayers.map((player) => makePick(player, "Stella"));
+  const initialLowCost = lowCostPlayers.slice(0, STARTING_ELEVEN_SIZE - initialStars.length).map((player) => makePick(player, "Low-cost"));
+  const targetSpend = risk === "Aggressivo" ? 230 : risk === "Equilibrato" ? 215 : 200;
+  const balanced = balanceSpend([...initialStars, ...initialLowCost], Math.min(budget, targetSpend));
+  const stars = balanced.slice(0, initialStars.length);
+  const lowCost = balanced.slice(initialStars.length);
+
+  return {
+    title: plan?.title || "Due leader, il resto è valore",
+    formation,
+    budget,
+    estimatedSpend: balanced.reduce((sum, pick) => sum + pick.maxBid, 0),
+    starsUsed: stars.length,
+    stars,
+    lowCost,
+    tacticalNote: plan?.tacticalNote || "Undici titolari, due punti fermi e una struttura di valore costruita sul modulo scelto.",
+    budgetRule: `Formazione completa da 11 titolari: almeno 200 crediti investiti, massimo 2 stelle e ${budget - targetSpend} crediti protetti per rilanci e correzioni.`,
+  };
 }
 
 export async function POST(request: Request) {
@@ -159,10 +212,10 @@ export async function POST(request: Request) {
       timeoutMs: 80000,
       schema: planSchema,
       schemaName: "fantacalcio_auction_plan",
-      instructions: "Agisci come un Direttore Sportivo esperto di fantacalcio. Il budget della lega è fisso e non negoziabile: 250 crediti. Ottimizza il valore, non collezionare nomi famosi. Vincolo assoluto: massimo 2 stelle complessive. Tutti gli altri suggerimenti devono essere low-cost. Scegli solo giocatori presenti nei dati, rispetta il budget, diversifica i ruoli e valorizza giovani Under 23/25 con reali possibilità di minuti. Considera gol, assist, tiri, passaggi, dribbling, infortuni, titolarità, prezzo e potenziale. La quota può essere una stima UNDICI finché quella ufficiale non è disponibile: non confonderle. Scrivi in italiano, indica tetti disciplinati e non promettere risultati.",
-      input: { budget, formation, riskProfile: risk, hardConstraints: { maximumStars: 2, allOtherPicks: "low-cost", neverExceedBudget: true }, players: candidates.map((player) => ({ ...player, potential: potential(player), tier: isStar(player) ? "Stella" : "Low-cost" })) },
+      instructions: "Agisci come un Direttore Sportivo esperto di fantacalcio. Il budget della lega è fisso e non negoziabile: 250 crediti. Genera sempre una formazione titolare completa di 11 giocatori, coerente con il modulo richiesto, e investi almeno 200 crediti. Vincolo assoluto: massimo 2 stelle complessive. Tutti gli altri suggerimenti devono essere low-cost. Scegli solo giocatori presenti nei dati, rispetta il budget e valorizza giovani Under 23/25 con reali possibilità di minuti. Considera gol, assist, tiri, passaggi, dribbling, infortuni, titolarità, prezzo e potenziale. La quota può essere una stima UNDICI finché quella ufficiale non è disponibile: non confonderle. Scrivi in italiano, indica tetti disciplinati e non promettere risultati.",
+      input: { budget, formation, riskProfile: risk, hardConstraints: { startingPlayers: 11, minimumSpend: 200, maximumStars: 2, allOtherPicks: "low-cost", neverExceedBudget: true }, players: candidates.map((player) => ({ ...player, potential: potential(player), tier: isStar(player) ? "Stella" : "Low-cost" })) },
     });
-    return NextResponse.json({ plan: sanitisePlan(generated, budget, formation, candidates), source: generated ? "openai" : "simulazione", model: generated ? scoutModel : null, candidateCount: candidates.length });
+    return NextResponse.json({ plan: sanitisePlan(generated, budget, formation, risk, candidates), source: generated ? "openai" : "simulazione", model: generated ? scoutModel : null, candidateCount: candidates.length });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Errore AI" }, { status: 500 });
   }

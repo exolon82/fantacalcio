@@ -34,9 +34,11 @@ export const scoutPlayers: ScoutPlayer[] = [
   { id: 10, name: "Moise Kean", role: "A", club: "Fiorentina", age: 26, price: 39, score: 88, goals: 19, assists: 3, shots: 3.05, passes: 17.9, dribbles: 1.3, injuries: 2, starter: 96, news: "Il nome più battuto nelle leghe private", why: "Numeri da leader, ma prezzo già carico di hype." },
   { id: 11, name: "Artem Dovbyk", role: "A", club: "Roma", age: 29, price: 30, score: 80, goals: 13, assists: 3, shots: 2.44, passes: 18.3, dribbles: 0.6, injuries: 3, starter: 82, news: "Fiducia divisa: occasione se scende", why: "Possibile rilancio se la quota resta corretta." },
   { id: 12, name: "Ange-Yoan Bonny", role: "A", club: "Inter", age: 22, price: 18, score: 79, goals: 8, assists: 4, shots: 1.94, passes: 16.4, dribbles: 1.8, injuries: 1, starter: 61, news: "Hype da trasferimento sopra i minuti attesi", why: "Giovane ad alto upside, da pagare come scommessa." },
+  { id: 13, name: "Samuele Ricci", role: "C", club: "Milan", age: 24, price: 12, score: 77, goals: 1, assists: 3, shots: 0.62, passes: 49.1, dribbles: 0.8, injuries: 1, starter: 84, news: "Inserimento nelle nuove gerarchie da verificare", why: "Regia, minuti potenziali e costo sostenibile per completare il reparto." },
+  { id: 14, name: "Giovanni Fabbian", role: "C", club: "Bologna", age: 23, price: 11, score: 75, goals: 4, assists: 2, shots: 1.18, passes: 21.4, dribbles: 0.7, injuries: 0, starter: 69, news: "Profilo giovane da seguire durante il precampionato", why: "Inserimenti e margine di crescita a prezzo da rotazione." },
+  { id: 15, name: "Alessandro Buongiorno", role: "D", club: "Napoli", age: 27, price: 15, score: 81, goals: 1, assists: 1, shots: 0.44, passes: 46.2, dribbles: 0.3, injuries: 2, starter: 88, news: "Riferimento difensivo con costo ancora gestibile", why: "Titolarità e affidabilità per completare una difesa equilibrata." },
 ];
 
 export function isStar(player: ScoutPlayer) {
   return player.price >= 35 || player.score >= 92;
 }
-

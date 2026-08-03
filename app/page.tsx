@@ -638,7 +638,7 @@ export default function Home() {
         <section className="page-section ai-page">
           <div className="page-heading ai-heading">
             <div><p className="eyebrow">DIRETTORE SPORTIVO AI</p><h1>Due stelle.<br />Una rosa vera.</h1></div>
-            <p>L’AI incrocia numeri, prezzo, titolarità, infortuni e notizie sul budget fisso della lega: 250 crediti. Vincolo non negoziabile: massimo due top, poi solo valore e low-cost.</p>
+            <p>L’AI costruisce 11 titolari sul budget fisso di 250 crediti: almeno 200 investiti nella formazione, massimo due top, poi valore e low-cost.</p>
           </div>
 
           <div className="ai-control-grid">
@@ -665,11 +665,11 @@ export default function Home() {
             <div className="ai-result">
               <div className="result-head">
                 <div><span className={`engine-state ${aiSource}`}>{aiSource === "openai" ? "OPENAI LIVE" : "ANTEPRIMA INTELLIGENTE"}</span><h2>{aiPlan.title}</h2><p>{aiPlan.tacticalNote}</p></div>
-                <div className="budget-card"><small>SPESA NUCLEO</small><strong>{aiPlan.estimatedSpend}</strong><span>su {aiPlan.budget} crediti</span><b>{Math.max(0, aiPlan.budget - aiPlan.estimatedSpend)} residui</b></div>
+                <div className="budget-card"><small>SPESA FORMAZIONE · {aiPlan.stars.length + aiPlan.lowCost.length}/11 TITOLARI</small><strong>{aiPlan.estimatedSpend}</strong><span>su {aiPlan.budget} crediti</span><b>{Math.max(0, aiPlan.budget - aiPlan.estimatedSpend)} residui</b></div>
               </div>
               <div className="squad-columns">
                 <div className="pick-group stars"><div className="pick-title"><span>★</span><div><small>I DUE LEADER</small><h3>Stelle della rosa</h3></div></div>{aiPlan.stars.map((pick) => <article className="ai-pick" key={pick.player}><span className="role-square">{pick.role}</span><div><h4>{pick.player}</h4><p>{pick.reason}</p><small>Rischio {pick.risk}</small></div><div className="max-bid"><strong>{pick.maxBid}</strong><span>tetto</span></div></article>)}</div>
-                <div className="pick-group lowcost"><div className="pick-title"><span>↘</span><div><small>L’OSSATURA</small><h3>Low-cost ad alto valore</h3></div></div>{aiPlan.lowCost.map((pick) => <article className="ai-pick" key={pick.player}><span className="role-square">{pick.role}</span><div><h4>{pick.player}</h4><p>{pick.reason}</p><small>Rischio {pick.risk}</small></div><div className="max-bid"><strong>{pick.maxBid}</strong><span>tetto</span></div></article>)}</div>
+                <div className="pick-group lowcost"><div className="pick-title"><span>↘</span><div><small>L’OSSATURA · FORMAZIONE COMPLETA</small><h3>Low-cost ad alto valore</h3></div></div>{aiPlan.lowCost.map((pick) => <article className="ai-pick" key={pick.player}><span className="role-square">{pick.role}</span><div><h4>{pick.player}</h4><p>{pick.reason}</p><small>Rischio {pick.risk}</small></div><div className="max-bid"><strong>{pick.maxBid}</strong><span>tetto</span></div></article>)}</div>
               </div>
               <div className="budget-rule"><b>REGOLA DEL DS</b><p>{aiPlan.budgetRule}</p><span>Modulo {aiPlan.formation}</span></div>
             </div>
