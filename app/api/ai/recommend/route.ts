@@ -192,7 +192,7 @@ function sanitisePlan(plan: AiPlan | null, budget: number, formation: string, ri
     starsUsed: stars.length,
     stars,
     lowCost,
-    tacticalNote: plan?.tacticalNote || "Undici titolari, due punti fermi e una struttura di valore costruita sul modulo scelto.",
+    tacticalNote: `Undici titolari nel ${formation}: ruoli completi, due punti fermi e una struttura di valore con tetti d’asta già calibrati.`,
     budgetRule: `Formazione completa da 11 titolari: almeno 200 crediti investiti, massimo 2 stelle e ${budget - targetSpend} crediti protetti per rilanci e correzioni.`,
   };
 }
