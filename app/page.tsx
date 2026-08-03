@@ -388,8 +388,8 @@ export default function Home() {
           <div className="page-heading"><p className="eyebrow">MARKET INTELLIGENCE</p><h1>Il mercato cambia<br />le gerarchie.</h1><p>Ogni trasferimento viene tradotto in impatto fantacalcistico: titolarità, ruolo, concorrenza e prezzo.</p></div>
           <div className="market-layout">
             <div className="transfer-list">
-              <div className="section-title"><h2>Movimenti già analizzati</h2><span>4 schede base</span></div>
-              <div className="market-data-note"><b>Analisi DS</b><span>Queste schede sono dimostrative; le notizie live sono nel radar editoriale.</span></div>
+              <div className="section-title"><h2>Movimenti già analizzati</h2><span>4 analisi manuali</span></div>
+              <div className="market-data-note"><b>Analisi DS</b><span>Il numero resta a quattro finché un nuovo movimento non viene verificato e analizzato. Le indiscrezioni live sono nel radar editoriale.</span></div>
               {transfers.map((move, index) => <article className="transfer-card" key={move.player}>
                 <span className="transfer-index">0{index + 1}</span>
                 <div><small>{move.type}</small><h3>{move.player}</h3><p>{move.from} <b>→</b> {move.to}</p></div>
@@ -402,6 +402,7 @@ export default function Home() {
                 <div className="market-news-head"><div><span className="live-dot" /><small>RADAR EDITORIALE</small></div><b>{marketNewsSource === "sosfanta" ? "SOS FANTA" : marketNewsSource === "gnews" ? "GNEWS" : "LIVE"}</b></div>
                 <h2>Ultime dal mercato</h2>
                 <p className="market-news-intro">Titoli e segnali recenti. Verifica sempre l’articolo originale prima di cambiare strategia d’asta.</p>
+                <p className="market-news-refresh"><b>Refresh ogni 10 minuti</b><span>Nessun consumo di crediti AI</span></p>
                 <div className="market-news-list">
                   {marketNewsLoading && [1, 2, 3, 4].map((item) => <span className="market-news-skeleton" key={item} />)}
                   {!marketNewsLoading && marketNews.map((item) => <a href={item.url} target="_blank" rel="noopener noreferrer" key={item.url}>
