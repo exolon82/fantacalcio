@@ -16,6 +16,7 @@ type DailyReport = {
   alerts: string[];
   marketPulse: string;
 };
+type MarketNewsItem = { title: string; url: string; publishedAt: string; description: string; source: string };
 type LivePlayer = {
   id: number; name: string; age: number | null; nationality: string | null; photoUrl: string | null; role: Role; position: string | null; shirtNumber: number | null;
   teamId: number; team: string; teamCode: string | null; teamLogo: string | null; statsSeason: number | null; appearances: number; starts: number; minutes: number;
@@ -92,6 +93,17 @@ function MiniTrend({ values }: { values: number[] }) {
   );
 }
 
+function newsAge(value: string) {
+  const published = new Date(value).getTime();
+  if (!Number.isFinite(published)) return "Adesso";
+  const minutes = Math.max(1, Math.round((Date.now() - published) / 60000));
+  if (minutes < 60) return `${minutes} min fa`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `${hours} ${hours === 1 ? "ora" : "ore"} fa`;
+  const days = Math.round(hours / 24);
+  return `${days} ${days === 1 ? "giorno" : "giorni"} fa`;
+}
+
 export default function Home() {
   const [tab, setTab] = useState<Tab>("radar");
   const [role, setRole] = useState<Role | "Tutti">("Tutti");
@@ -110,6 +122,9 @@ export default function Home() {
   const [aiError, setAiError] = useState("");
   const [dailyReport, setDailyReport] = useState<DailyReport | null>(null);
   const [reportStored, setReportStored] = useState(false);
+  const [marketNews, setMarketNews] = useState<MarketNewsItem[]>([]);
+  const [marketNewsSource, setMarketNewsSource] = useState<"sosfanta" | "gnews" | "unavailable" | null>(null);
+  const [marketNewsLoading, setMarketNewsLoading] = useState(true);
   const [livePlayers, setLivePlayers] = useState<LivePlayer[]>([]);
   const [rosterSource, setRosterSource] = useState<"api-football" | "demo" | null>(null);
   const [rosterMessage, setRosterMessage] = useState("");
@@ -158,6 +173,18 @@ export default function Home() {
       .catch(() => { setRosterSource("demo"); setRosterMessage("Rosa completa temporaneamente non disponibile."); })
       .finally(() => setRosterLoading(false));
   }, [tab, rosterSource, rosterLoading]);
+
+  useEffect(() => {
+    if (tab !== "mercato" || marketNewsSource) return;
+    fetch("/api/news/market", { cache: "no-store" })
+      .then((response) => response.json())
+      .then((data: { news?: MarketNewsItem[]; source?: "sosfanta" | "gnews" | "unavailable" }) => {
+        setMarketNews(data.news ?? []);
+        setMarketNewsSource(data.source ?? "unavailable");
+      })
+      .catch(() => setMarketNewsSource("unavailable"))
+      .finally(() => setMarketNewsLoading(false));
+  }, [tab, marketNewsSource]);
 
   const filtered = useMemo(() => players
     .filter(p => role === "Tutti" || p.role === role)
@@ -361,7 +388,8 @@ export default function Home() {
           <div className="page-heading"><p className="eyebrow">MARKET INTELLIGENCE</p><h1>Il mercato cambia<br />le gerarchie.</h1><p>Ogni trasferimento viene tradotto in impatto fantacalcistico: titolarità, ruolo, concorrenza e prezzo.</p></div>
           <div className="market-layout">
             <div className="transfer-list">
-              <div className="section-title"><h2>Ultimi movimenti monitorati</h2><span>4 aggiornamenti</span></div>
+              <div className="section-title"><h2>Movimenti già analizzati</h2><span>4 schede base</span></div>
+              <div className="market-data-note"><b>Analisi DS</b><span>Queste schede sono dimostrative; le notizie live sono nel radar editoriale.</span></div>
               {transfers.map((move, index) => <article className="transfer-card" key={move.player}>
                 <span className="transfer-index">0{index + 1}</span>
                 <div><small>{move.type}</small><h3>{move.player}</h3><p>{move.from} <b>→</b> {move.to}</p></div>
@@ -369,7 +397,25 @@ export default function Home() {
                 <p className="transfer-note">{move.note}</p>
               </article>)}
             </div>
-            <aside className="market-aside"><span className="live-dot" /> <small>INDICE HYPE · ULTIME 72 ORE</small><h2>Kean guida le conversazioni</h2><p>Il volume editoriale cresce più rapidamente della proiezione bonus. Segnale da prezzo caldo.</p><div className="hype-bars"><span><i style={{ width: "92%" }} />Kean <b>92</b></span><span><i style={{ width: "78%" }} />David <b>78</b></span><span><i style={{ width: "61%" }} />Bonny <b>61</b></span></div><button onClick={() => { setSelectedId(10); setTab("radar"); }}>Analizza il profilo →</button></aside>
+            <div className="market-sidebar">
+              <aside className="market-news-aside">
+                <div className="market-news-head"><div><span className="live-dot" /><small>RADAR EDITORIALE</small></div><b>{marketNewsSource === "sosfanta" ? "SOS FANTA" : marketNewsSource === "gnews" ? "GNEWS" : "LIVE"}</b></div>
+                <h2>Ultime dal mercato</h2>
+                <p className="market-news-intro">Titoli e segnali recenti. Verifica sempre l’articolo originale prima di cambiare strategia d’asta.</p>
+                <div className="market-news-list">
+                  {marketNewsLoading && [1, 2, 3, 4].map((item) => <span className="market-news-skeleton" key={item} />)}
+                  {!marketNewsLoading && marketNews.map((item) => <a href={item.url} target="_blank" rel="noopener noreferrer" key={item.url}>
+                    <span><time>{newsAge(item.publishedAt)}</time><em>{item.source}</em></span>
+                    <strong>{item.title}</strong>
+                    {item.description && <p>{item.description}</p>}
+                    <i>Leggi la fonte ↗</i>
+                  </a>)}
+                  {!marketNewsLoading && marketNews.length === 0 && <div className="market-news-empty">Le notizie live non sono disponibili in questo momento.</div>}
+                </div>
+                <a className="all-market-news" href="https://www.sosfanta.com/calciomercato/" target="_blank" rel="noopener noreferrer">Tutto il mercato su SOS Fanta ↗</a>
+              </aside>
+              <aside className="market-aside"><span className="live-dot" /> <small>INDICE HYPE · ULTIME 72 ORE</small><h2>Kean guida le conversazioni</h2><p>Il volume editoriale cresce più rapidamente della proiezione bonus. Segnale da prezzo caldo.</p><div className="hype-bars"><span><i style={{ width: "92%" }} />Kean <b>92</b></span><span><i style={{ width: "78%" }} />David <b>78</b></span><span><i style={{ width: "61%" }} />Bonny <b>61</b></span></div><button onClick={() => { setSelectedId(10); setTab("radar"); }}>Analizza il profilo →</button></aside>
+            </div>
           </div>
         </section>
       )}
