@@ -17,6 +17,7 @@ type DailyReport = {
   marketPulse: string;
 };
 type MarketNewsItem = { title: string; url: string; publishedAt: string; description: string; source: string };
+type SourceProvider = { id: string; label: string; live: boolean; configured: boolean };
 type LivePlayer = {
   id: number; name: string; age: number | null; nationality: string | null; photoUrl: string | null; role: Role; position: string | null; shirtNumber: number | null;
   teamId: number; team: string; teamCode: string | null; teamLogo: string | null; statsSeason: number | null; appearances: number; starts: number; minutes: number;
@@ -109,10 +110,11 @@ export default function Home() {
   const [role, setRole] = useState<Role | "Tutti">("Tutti");
   const [query, setQuery] = useState("");
   const [selectedId, setSelectedId] = useState(6);
-  const [shortlist, setShortlist] = useState<number[]>([]);
+  const [shortlist, setShortlist] = useState<string[]>([]);
   const [compare, setCompare] = useState<number[]>([6, 7]);
   const [syncing, setSyncing] = useState(false);
   const [syncMessage, setSyncMessage] = useState("Pronto per la sincronizzazione");
+  const [sourceProviders, setSourceProviders] = useState<SourceProvider[]>([]);
   const [aiBudget, setAiBudget] = useState(500);
   const [aiFormation, setAiFormation] = useState("3-4-3");
   const [aiRisk, setAiRisk] = useState("Equilibrato");
@@ -137,17 +139,29 @@ export default function Home() {
   const [rosterTeam, setRosterTeam] = useState("Tutte");
   const [rosterSort, setRosterSort] = useState<"score" | "potential" | "value">("score");
   const [rosterPage, setRosterPage] = useState(0);
+  const [rosterOnlyShortlist, setRosterOnlyShortlist] = useState(false);
+  const [selectedLiveId, setSelectedLiveId] = useState<number | null>(null);
 
   useEffect(() => {
     const saved = window.localStorage.getItem("undici-shortlist");
-    // Ripristino una preferenza del browser dopo il primo render client.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    if (saved) setShortlist(JSON.parse(saved));
+    if (saved) {
+      const parsed = JSON.parse(saved) as Array<string | number>;
+      // Ripristino una preferenza del browser dopo il primo render client.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setShortlist(parsed.map((item) => typeof item === "number" ? `radar:${item}` : item));
+    }
   }, []);
 
   useEffect(() => {
     window.localStorage.setItem("undici-shortlist", JSON.stringify(shortlist));
   }, [shortlist]);
+
+  useEffect(() => {
+    if (selectedLiveId === null) return;
+    const closeOnEscape = (event: KeyboardEvent) => event.key === "Escape" && setSelectedLiveId(null);
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [selectedLiveId]);
 
   useEffect(() => {
     if (tab !== "ai" || dailyReport) return;
@@ -196,18 +210,36 @@ export default function Home() {
   const selected = players.find(p => p.id === selectedId) ?? players[0];
   const comparedPlayers = compare.map(id => players.find(p => p.id === id)).filter(Boolean) as Player[];
   const rosterTeams = useMemo(() => [...new Set(livePlayers.map((player) => player.team))].sort((a, b) => a.localeCompare(b, "it")), [livePlayers]);
+  const radarShortlistNames = useMemo(() => new Set(shortlist
+    .filter((key) => key.startsWith("radar:"))
+    .map((key) => players.find((player) => player.id === Number(key.slice(6)))?.name)
+    .filter(Boolean) as string[]), [shortlist]);
   const filteredRoster = useMemo(() => livePlayers
+    .filter((player) => !rosterOnlyShortlist || shortlist.includes(`roster:${player.id}`) || radarShortlistNames.has(player.name))
     .filter((player) => rosterRole === "Tutti" || player.role === rosterRole)
     .filter((player) => rosterTeam === "Tutte" || player.team === rosterTeam)
     .filter((player) => rosterAge === "Tutti" || (player.age !== null && player.age <= Number(rosterAge.slice(1))))
     .filter((player) => `${player.name} ${player.team}`.toLocaleLowerCase("it").includes(rosterQuery.toLocaleLowerCase("it")))
-    .sort((a, b) => rosterSort === "potential" ? b.potential - a.potential : rosterSort === "value" ? (b.score + b.potential - b.quoteEstimate * 2) - (a.score + a.potential - a.quoteEstimate * 2) : b.score - a.score), [livePlayers, rosterRole, rosterTeam, rosterAge, rosterQuery, rosterSort]);
+    .sort((a, b) => rosterSort === "potential" ? b.potential - a.potential : rosterSort === "value" ? (b.score + b.potential - b.quoteEstimate * 2) - (a.score + a.potential - a.quoteEstimate * 2) : b.score - a.score), [livePlayers, rosterRole, rosterTeam, rosterAge, rosterQuery, rosterSort, rosterOnlyShortlist, shortlist, radarShortlistNames]);
   const rosterPageSize = 36;
   const rosterPages = Math.max(1, Math.ceil(filteredRoster.length / rosterPageSize));
   const rosterPagePlayers = filteredRoster.slice(rosterPage * rosterPageSize, (rosterPage + 1) * rosterPageSize);
+  const selectedLive = selectedLiveId === null ? null : livePlayers.find((player) => player.id === selectedLiveId) ?? null;
+  const rosterShortlistCount = livePlayers.filter((player) => shortlist.includes(`roster:${player.id}`) || radarShortlistNames.has(player.name)).length;
 
-  function toggleShortlist(id: number) {
-    setShortlist(current => current.includes(id) ? current.filter(item => item !== id) : [...current, id]);
+  function toggleShortlist(key: string) {
+    setShortlist(current => current.includes(key) ? current.filter(item => item !== key) : [...current, key]);
+  }
+
+  function isLiveShortlisted(player: LivePlayer) {
+    return shortlist.includes(`roster:${player.id}`) || radarShortlistNames.has(player.name);
+  }
+
+  function toggleLiveShortlist(player: LivePlayer) {
+    const equivalentKeys = [`roster:${player.id}`, ...players.filter((item) => item.name === player.name).map((item) => `radar:${item.id}`)];
+    setShortlist((current) => equivalentKeys.some((key) => current.includes(key))
+      ? current.filter((key) => !equivalentKeys.includes(key))
+      : [...current, `roster:${player.id}`]);
   }
 
   function toggleCompare(id: number) {
@@ -219,14 +251,24 @@ export default function Home() {
     setSyncMessage("Controllo delle fonti in corso…");
     try {
       const response = await fetch("/api/sync", { cache: "no-store" });
-      const data = await response.json() as { providers: { live: boolean }[]; checkedAt: string };
-      const live = data.providers.filter((provider: { live: boolean }) => provider.live).length;
-      setSyncMessage(`${live}/${data.providers.length} fonti raggiungibili · ${new Date(data.checkedAt).toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" })}`);
+      const data = await response.json() as { providers: SourceProvider[]; checkedAt: string };
+      const live = data.providers.filter((provider) => provider.live).length;
+      const unavailable = data.providers.filter((provider) => !provider.live).map((provider) => provider.label);
+      setSourceProviders(data.providers);
+      setSyncMessage(`${live}/${data.providers.length} fonti operative · ${new Date(data.checkedAt).toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" })}${unavailable.length ? ` · Non disponibile: ${unavailable.join(", ")}` : ""}`);
     } catch {
       setSyncMessage("Connessione non disponibile: dati demo preservati");
     } finally {
       setSyncing(false);
     }
+  }
+
+  function sourceBadge(id: string, fallback: string) {
+    const provider = sourceProviders.find((item) => item.id === id);
+    if (!provider) return { label: fallback, className: id === "football-data" || id === "thesportsdb" || id === "supabase" ? "ready" : "key" };
+    return provider.live
+      ? { label: "Operativa", className: "ready" }
+      : { label: provider.configured ? "Non raggiungibile" : "Non configurata", className: "off" };
   }
 
   async function buildAiPlan() {
@@ -282,7 +324,7 @@ export default function Home() {
           <button className={tab === "fonti" ? "active" : ""} onClick={() => setTab("fonti")}>Fonti</button>
         </nav>
         <div className="header-actions">
-          <button className="shortlist-button" onClick={() => { setRole("Tutti"); setQuery(""); setTab("radar"); }}><span>☆</span> Shortlist <b>{shortlist.length}</b></button>
+          <button className="shortlist-button" onClick={() => { setRosterOnlyShortlist(true); setRosterPage(0); setTab("rosa"); }}><span>☆</span> Shortlist <b>{shortlist.length}</b></button>
           <button className="avatar" aria-label="Profilo direttore sportivo">DS</button>
         </div>
       </header>
@@ -323,7 +365,7 @@ export default function Home() {
                     <span className={`verdict verdict-${player.verdict.toLowerCase()}`}>{verdictLabels[player.verdict]}</span>
                     <div className="row-actions">
                       <button className={compare.includes(player.id) ? "on" : ""} onClick={e => { e.stopPropagation(); toggleCompare(player.id); }} aria-label={`Confronta ${player.name}`}>⇄</button>
-                      <button className={shortlist.includes(player.id) ? "saved" : ""} onClick={e => { e.stopPropagation(); toggleShortlist(player.id); }} aria-label={`Salva ${player.name}`}>{shortlist.includes(player.id) ? "★" : "☆"}</button>
+                      <button className={shortlist.includes(`radar:${player.id}`) ? "saved" : ""} onClick={e => { e.stopPropagation(); toggleShortlist(`radar:${player.id}`); }} aria-label={`Salva ${player.name}`}>{shortlist.includes(`radar:${player.id}`) ? "★" : "☆"}</button>
                     </div>
                   </article>
                 ))}
@@ -335,7 +377,7 @@ export default function Home() {
               <div className="detail-top">
                 <PlayerMark player={selected} size="large" />
                 <div><span className="role-chip">{roleLabels[selected.role]}</span><h2>{selected.name}</h2><p>{selected.club} · {selected.age} anni</p></div>
-                <button className={shortlist.includes(selected.id) ? "detail-save saved" : "detail-save"} onClick={() => toggleShortlist(selected.id)}>{shortlist.includes(selected.id) ? "★" : "☆"}</button>
+                <button className={shortlist.includes(`radar:${selected.id}`) ? "detail-save saved" : "detail-save"} onClick={() => toggleShortlist(`radar:${selected.id}`)}>{shortlist.includes(`radar:${selected.id}`) ? "★" : "☆"}</button>
               </div>
               <div className="decision-card">
                 <div><span>VERDETTO DS</span><strong>{verdictLabels[selected.verdict]}</strong></div>
@@ -382,9 +424,15 @@ export default function Home() {
           <div className="roster-role-filters">
             {(["Tutti", "P", "D", "C", "A"] as const).map((item) => <button key={item} className={rosterRole === item ? "active" : ""} onClick={() => { setRosterRole(item); setRosterPage(0); }}>{item === "Tutti" ? "Tutti i ruoli" : roleLabels[item]}<span>{item === "Tutti" ? livePlayers.length : livePlayers.filter((player) => player.role === item).length}</span></button>)}
           </div>
-          <div className="roster-result-line"><span><b>{filteredRoster.length}</b> profili trovati</span><small>{rosterSource === "api-football" ? "Statistiche ultima stagione disponibile" : "Dati dimostrativi"}</small></div>
+          <div className="roster-result-line">
+            <span><b>{filteredRoster.length}</b> profili trovati</span>
+            <div className="roster-result-actions">
+              <button className={rosterOnlyShortlist ? "active" : ""} onClick={() => { setRosterOnlyShortlist((current) => !current); setRosterPage(0); }}>★ {rosterOnlyShortlist ? "Mostra tutti" : "Solo shortlist"} <b>{rosterShortlistCount}</b></button>
+              <small>{rosterSource === "api-football" ? "Statistiche ultima stagione disponibile" : "Dati dimostrativi"}</small>
+            </div>
+          </div>
           <div className="roster-grid">
-            {rosterPagePlayers.map((player) => <article className="roster-card" key={player.id}>
+            {rosterPagePlayers.map((player) => <article className="roster-card" key={player.id} role="button" tabIndex={0} onClick={() => setSelectedLiveId(player.id)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setSelectedLiveId(player.id); } }}>
               <div className="roster-card-top">
                 {player.photoUrl ? <img src={player.photoUrl} alt="" loading="lazy" /> : <span className="roster-initials">{player.name.split(" ").map((part) => part[0]).slice(-2).join("")}</span>}
                 <div><span className="role-chip">{roleLabels[player.role]}</span><h2>{player.name}</h2><p>{player.team}{player.age ? ` · ${player.age} anni` : ""}</p></div>
@@ -394,10 +442,35 @@ export default function Home() {
               <div className="roster-scoreline"><div><small>DS SCORE</small><strong>{Math.round(player.score)}</strong></div><div><small>POTENZIALE</small><strong>{Math.round(player.potential)}</strong></div><div className="roster-quote"><small>{player.officialQuote !== null ? "QUOTA UFFICIALE" : "STIMA UNDICI"}</small><strong>{Math.round(player.officialQuote ?? player.quoteEstimate)}</strong><span>crediti</span></div></div>
               <div className="roster-stats"><span><small>Pres.</small><b>{player.appearances}</b></span><span><small>Gol</small><b>{player.goals}</b></span><span><small>Assist</small><b>{player.assists}</b></span><span><small>Tiri p.</small><b>{player.shotsOn}</b></span><span><small>Pass. chiave</small><b>{player.keyPasses}</b></span><span><small>Dribbling</small><b>{player.dribblesSuccess}</b></span></div>
               <div className="roster-card-foot"><span>{player.statsSeason ? `Numeri ${player.statsSeason}/${String(player.statsSeason + 1).slice(-2)}` : "Dati rosa attuale"}</span><b className={player.injured ? "risk-high" : "risk-low"}>{player.injured ? player.injuryNote ?? "Da verificare" : "Disponibile"}</b></div>
+              <div className="roster-card-actions">
+                <button onClick={(event) => { event.stopPropagation(); setSelectedLiveId(player.id); }}>Apri scheda <span>→</span></button>
+                <button className={isLiveShortlisted(player) ? "saved" : ""} onClick={(event) => { event.stopPropagation(); toggleLiveShortlist(player); }} aria-label={`${isLiveShortlisted(player) ? "Rimuovi" : "Aggiungi"} ${player.name} ${isLiveShortlisted(player) ? "dalla" : "alla"} shortlist`}>{isLiveShortlisted(player) ? "★" : "☆"}</button>
+              </div>
             </article>)}
-            {!rosterLoading && rosterPagePlayers.length === 0 && <div className="roster-empty">Nessun giocatore corrisponde ai filtri scelti.</div>}
+            {!rosterLoading && rosterPagePlayers.length === 0 && <div className="roster-empty">{rosterOnlyShortlist ? "La shortlist Serie A è vuota. Disattiva il filtro o salva un giocatore con la stella." : "Nessun giocatore corrisponde ai filtri scelti."}</div>}
           </div>
           {filteredRoster.length > rosterPageSize && <div className="roster-pagination"><button disabled={rosterPage === 0} onClick={() => setRosterPage((page) => Math.max(0, page - 1))}>← Precedenti</button><span>Pagina {rosterPage + 1} di {rosterPages}</span><button disabled={rosterPage + 1 >= rosterPages} onClick={() => setRosterPage((page) => Math.min(rosterPages - 1, page + 1))}>Successivi →</button></div>}
+
+          {selectedLive && <div className="roster-modal-backdrop" onClick={() => setSelectedLiveId(null)}>
+            <aside className="roster-player-modal" role="dialog" aria-modal="true" aria-labelledby="live-player-title" onClick={(event) => event.stopPropagation()}>
+              <button className="roster-modal-close" onClick={() => setSelectedLiveId(null)} aria-label="Chiudi scheda giocatore">×</button>
+              <div className="roster-modal-head">
+                {selectedLive.photoUrl ? <img src={selectedLive.photoUrl} alt="" /> : <span className="roster-modal-initials">{selectedLive.name.split(" ").map((part) => part[0]).slice(-2).join("")}</span>}
+                <div><span className="role-chip">{roleLabels[selectedLive.role]}{selectedLive.position ? ` · ${selectedLive.position}` : ""}</span><h2 id="live-player-title">{selectedLive.name}</h2><p>{selectedLive.team}{selectedLive.age ? ` · ${selectedLive.age} anni` : ""}{selectedLive.nationality ? ` · ${selectedLive.nationality}` : ""}</p></div>
+                {selectedLive.teamLogo && <img className="roster-modal-team" src={selectedLive.teamLogo} alt="" />}
+              </div>
+              <div className="roster-modal-summary">
+                <div><small>DS SCORE</small><strong>{Math.round(selectedLive.score)}</strong></div>
+                <div><small>POTENZIALE</small><strong>{Math.round(selectedLive.potential)}</strong></div>
+                <div className="quote"><small>{selectedLive.officialQuote !== null ? "QUOTAZIONE UFFICIALE" : "STIMA UNDICI"}</small><strong>{Math.round(selectedLive.officialQuote ?? selectedLive.quoteEstimate)}</strong><span>crediti</span></div>
+              </div>
+              <div className="roster-modal-stats">
+                {[["Presenze", selectedLive.appearances], ["Da titolare", selectedLive.starts], ["Minuti", selectedLive.minutes], ["Gol", selectedLive.goals], ["Assist", selectedLive.assists], ["Tiri in porta", selectedLive.shotsOn], ["Tiri totali", selectedLive.shotsTotal], ["Passaggi", selectedLive.passesTotal], ["Passaggi chiave", selectedLive.keyPasses], ["Precisione passaggi", `${selectedLive.passAccuracy}%`], ["Dribbling riusciti", selectedLive.dribblesSuccess], ["Infortuni", selectedLive.injuries], ["Contrasti", selectedLive.tackles], ["Rating", selectedLive.rating ?? "—"]].map(([label, value]) => <div key={String(label)}><small>{label}</small><b>{value}</b></div>)}
+              </div>
+              <div className="roster-modal-status"><div><small>CONDIZIONE</small><b className={selectedLive.injured ? "risk-high" : "risk-low"}>{selectedLive.injured ? selectedLive.injuryNote ?? "Infortunio da verificare" : "Disponibile"}</b></div><p>{selectedLive.statsSeason ? `Statistiche stagione ${selectedLive.statsSeason}/${String(selectedLive.statsSeason + 1).slice(-2)}.` : "Dati di rosa attuale."} Aggiornamento: {selectedLive.updatedAt ? new Date(selectedLive.updatedAt).toLocaleDateString("it-IT") : "fonte live"}.</p></div>
+              <button className={`roster-modal-save ${isLiveShortlisted(selectedLive) ? "saved" : ""}`} onClick={() => toggleLiveShortlist(selectedLive)}>{isLiveShortlisted(selectedLive) ? "★ Nella shortlist" : "☆ Aggiungi alla shortlist"}</button>
+            </aside>
+          </div>}
         </section>
       )}
 
@@ -521,12 +594,12 @@ export default function Home() {
           <div className="page-heading compact"><p className="eyebrow">TRASPARENZA DEL DATO</p><h1>Fonti sotto controllo.</h1><p>L’app non inventa una statistica mancante: mostra copertura, freschezza e affidabilità di ogni segnale.</p></div>
           <div className="source-status"><div><span className="pulse" /><div><strong>{syncMessage}</strong><small>Le stime demo restano disponibili anche offline</small></div></div><button onClick={syncSources} disabled={syncing}>{syncing ? "Sincronizzazione…" : "Verifica connessioni"}</button></div>
           <div className="source-grid">
-            <article><div className="source-logo">FD</div><span className="source-state ready">Gratuita</span><h2>football-data.org</h2><p>Calendario, classifiche, rose e risultati. Base affidabile per il contesto squadra.</p><ul><li>10 richieste/min nel piano free</li><li>Token personale richiesto</li><li>Copertura Serie A da verificare per stagione</li></ul></article>
-            <article><div className="source-logo">AF</div><span className="source-state key">Chiave API</span><h2>API-Football</h2><p>Statistiche giocatore, tiri, passaggi, trasferimenti e infortuni quando inclusi nel piano.</p><ul><li>100 richieste/giorno nel piano free</li><li>Stagioni free soggette a limiti</li><li>Fonte primaria del motore statistico</li></ul></article>
-            <article><div className="source-logo">GN</div><span className="source-state key">Chiave API</span><h2>GNews</h2><p>Notizie italiane per misurare attenzione mediatica, sentiment e rischio hype.</p><ul><li>Account gratuito disponibile</li><li>Solo titoli e metadati nel modello</li><li>Mai usata come dato prestazionale</li></ul></article>
-            <article><div className="source-logo">SD</div><span className="source-state ready">Demo attiva</span><h2>TheSportsDB</h2><p>Squadre, giocatori e metadati di supporto con accesso pubblico al livello base.</p><ul><li>30 richieste/min gratuite</li><li>Chiave pubblica v1 disponibile</li><li>Fallback per anagrafiche e club</li></ul></article>
-            <article><div className="source-logo">AI</div><span className="source-state key">Chiave privata</span><h2>OpenAI</h2><p>Ragiona sui segnali disponibili e costruisce il piano d’asta con massimo due stelle.</p><ul><li>gpt-5.6-sol per le scelte</li><li>gpt-5.6-luna per il report</li><li>Chiave custodita solo su Vercel</li></ul></article>
-            <article><div className="source-logo">SB</div><span className="source-state ready">Piano free</span><h2>Supabase</h2><p>Database Postgres esterno per conservare lo storico dei report giornalieri.</p><ul><li>Accesso soltanto lato server</li><li>Row Level Security attiva</li><li>Nessuna chiave esposta al browser</li></ul></article>
+            <article><div className="source-logo">FD</div><span className={`source-state ${sourceBadge("football-data", "Gratuita").className}`}>{sourceBadge("football-data", "Gratuita").label}</span><h2>football-data.org</h2><p>Calendario, classifiche, rose e risultati. Base affidabile per il contesto squadra.</p><ul><li>10 richieste/min nel piano free</li><li>Token personale richiesto</li><li>Copertura Serie A da verificare per stagione</li></ul></article>
+            <article><div className="source-logo">AF</div><span className={`source-state ${sourceBadge("api-football", "Chiave API").className}`}>{sourceBadge("api-football", "Chiave API").label}</span><h2>API-Football</h2><p>Statistiche giocatore, tiri, passaggi, trasferimenti e infortuni quando inclusi nel piano.</p><ul><li>100 richieste/giorno nel piano free</li><li>Stagioni free soggette a limiti</li><li>Fonte primaria del motore statistico</li></ul></article>
+            <article><div className="source-logo">GN</div><span className={`source-state ${sourceBadge("gnews", "Chiave API").className}`}>{sourceBadge("gnews", "Chiave API").label}</span><h2>GNews</h2><p>Notizie italiane per misurare attenzione mediatica, sentiment e rischio hype.</p><ul><li>Account gratuito disponibile</li><li>Solo titoli e metadati nel modello</li><li>Mai usata come dato prestazionale</li></ul></article>
+            <article><div className="source-logo">SD</div><span className={`source-state ${sourceBadge("thesportsdb", "Pubblica").className}`}>{sourceBadge("thesportsdb", "Pubblica").label}</span><h2>TheSportsDB</h2><p>Squadre, giocatori e metadati di supporto con accesso pubblico al livello base.</p><ul><li>30 richieste/min gratuite</li><li>Chiave pubblica v1 disponibile</li><li>Fallback per anagrafiche e club</li></ul></article>
+            <article><div className="source-logo">AI</div><span className={`source-state ${sourceBadge("openai", "Chiave privata").className}`}>{sourceBadge("openai", "Chiave privata").label}</span><h2>OpenAI</h2><p>Ragiona sui segnali disponibili e costruisce il piano d’asta con massimo due stelle.</p><ul><li>gpt-5.6-sol per le scelte</li><li>gpt-5.6-luna per il report</li><li>Chiave custodita solo su Vercel</li></ul></article>
+            <article><div className="source-logo">SB</div><span className={`source-state ${sourceBadge("supabase", "Piano free").className}`}>{sourceBadge("supabase", "Piano free").label}</span><h2>Supabase</h2><p>Database Postgres esterno per conservare lo storico dei report giornalieri.</p><ul><li>Accesso soltanto lato server</li><li>Row Level Security attiva</li><li>Nessuna chiave esposta al browser</li></ul></article>
           </div>
           <div className="method-note"><span>i</span><div><h3>Come nasce il DS Score</h3><p>Prestazione 40% · titolarità 20% · affidabilità fisica 15% · contesto squadra 15% · prezzo e hype 10%. Regola rosa: massimo 2 stelle, poi low-cost. La quota fantacalcistica ufficiale richiede una licenza del relativo editore: in questa versione è una stima interna dichiarata.</p></div></div>
         </section>
