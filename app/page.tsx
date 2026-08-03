@@ -24,6 +24,7 @@ type LivePlayer = {
   rating: number | null; goals: number; assists: number; shotsTotal: number; shotsOn: number; passesTotal: number; keyPasses: number; passAccuracy: number;
   dribblesAttempts: number; dribblesSuccess: number; tackles: number; injured: boolean; injuries: number; injuryNote: string | null; quoteEstimate: number;
   officialQuote: number | null; officialFvm: number | null; officialRole: string | null; score: number; potential: number; updatedAt: string | null;
+  previousTeam: string | null; previousLeague: string | null; previousCountry: string | null; performanceOrigin: "serie-a" | "incoming-transfer" | null;
 };
 
 type Player = {
@@ -53,6 +54,10 @@ type Player = {
   watch: string;
   news: string;
   newsTone: "up" | "flat" | "down";
+  statsTeam?: string | null;
+  statsLeague?: string | null;
+  statsSeason?: number | null;
+  dataOrigin?: "serie-a" | "incoming-transfer" | null;
 };
 
 const players: Player[] = [
@@ -79,6 +84,63 @@ const transfers = [
 
 const roleLabels: Record<Role, string> = { P: "Portieri", D: "Difensori", C: "Centrocampisti", A: "Attaccanti" };
 const verdictLabels = { Compra: "Via libera", Tratta: "Tratta", Aspetta: "Aspetta" };
+
+function clampScore(value: number) {
+  return Math.min(100, Math.max(0, value));
+}
+
+function radarPlayer(player: LivePlayer): Player {
+  const price = Math.round(player.officialQuote ?? player.quoteEstimate);
+  const starter = player.appearances ? clampScore((player.starts / player.appearances) * 100) : 0;
+  const form = player.rating === null ? clampScore(player.score) : clampScore((player.rating - 5) * 42);
+  const availability = player.injured ? 25 : clampScore(100 - player.injuries * 9);
+  const value = clampScore(player.score * .72 + player.potential * .28 - price * 1.05 + 22);
+  const score = Math.round(clampScore(player.score * .42 + starter * .19 + player.potential * .17 + value * .16 + availability * .06));
+  const risk: Player["risk"] = player.injured || player.injuries >= 4 ? "Alto" : player.injuries >= 2 || starter < 55 ? "Medio" : "Basso";
+  const verdict: Player["verdict"] = score >= 72 && value >= 62 ? "Compra" : score >= 58 ? "Tratta" : "Aspetta";
+  const origin = player.previousTeam && player.previousTeam !== player.team
+    ? `${player.previousTeam}${player.previousLeague ? `, ${player.previousLeague}` : ""}`
+    : player.previousLeague ?? "campionato precedente";
+  const youthText = player.age !== null && player.age <= 23 ? " Il potenziale legato all’età aumenta il margine di crescita." : "";
+  const why = `Ranking automatico: rendimento ${Math.round(player.score)}/100, titolarità ${Math.round(starter)}% e rapporto qualità/prezzo ${Math.round(value)}/100. Dati ${player.statsSeason ?? "precedenti"} da ${origin}.${youthText}`;
+  const watch = player.injured ? player.injuryNote ?? "Condizione fisica da verificare" : player.previousTeam && player.previousTeam !== player.team ? "Adattamento alla Serie A e nuova gerarchia" : starter < 60 ? "Titolarità da consolidare" : price >= 30 ? "Non superare il tetto di spesa" : "Confermare ruolo e minuti nel precampionato";
+  const news = player.previousTeam && player.previousTeam !== player.team
+    ? `Nuovo in Italia: rendimento precedente con ${origin}`
+    : `Classifica aggiornata sui numeri della stagione ${player.statsSeason ?? "precedente"}`;
+  const trendBase = Math.max(18, score - 10);
+  return {
+    id: player.id,
+    name: player.name,
+    role: player.role,
+    club: player.team,
+    clubCode: (player.teamCode ?? player.team.slice(0, 3)).toUpperCase(),
+    age: player.age ?? 28,
+    price,
+    priceDelta: 0,
+    score,
+    form: Math.round(form),
+    starter: Math.round(starter),
+    risk,
+    goals: player.goals,
+    assists: player.assists,
+    shots: player.appearances ? Number((player.shotsOn / player.appearances).toFixed(2)) : 0,
+    passes: player.appearances ? Number((player.passesTotal / player.appearances).toFixed(1)) : 0,
+    dribbles: player.appearances ? Number((player.dribblesSuccess / player.appearances).toFixed(1)) : 0,
+    injuries: player.injuries,
+    minutes: player.minutes,
+    trend: [trendBase, Math.max(20, score - 7), Math.max(20, Math.round((score + form) / 2) - 4), Math.max(20, score - 3), Math.max(20, Math.round((score + value) / 2)), score],
+    verdict,
+    ceiling: player.age !== null && player.age <= 23 ? "Prospetto ad alto margine" : score >= 82 ? "Prima fascia di ruolo" : verdict === "Compra" ? "Titolare di valore" : "Profilo da rotazione",
+    why,
+    watch,
+    news,
+    newsTone: verdict === "Compra" ? "up" : verdict === "Aspetta" ? "down" : "flat",
+    statsTeam: player.previousTeam,
+    statsLeague: player.previousLeague,
+    statsSeason: player.statsSeason,
+    dataOrigin: player.performanceOrigin,
+  };
+}
 
 function PlayerMark({ player, size = "normal" }: { player: Player; size?: "normal" | "large" }) {
   return <div className={`player-mark club-${player.clubCode.toLowerCase()} ${size === "large" ? "large" : ""}`} aria-hidden="true">{player.name.split(" ").map(n => n[0]).slice(-2).join("")}</div>;
@@ -111,7 +173,7 @@ export default function Home() {
   const [query, setQuery] = useState("");
   const [selectedId, setSelectedId] = useState(6);
   const [shortlist, setShortlist] = useState<string[]>([]);
-  const [compare, setCompare] = useState<number[]>([6, 7]);
+  const [compare, setCompare] = useState<number[]>([]);
   const [syncing, setSyncing] = useState(false);
   const [syncMessage, setSyncMessage] = useState("Pronto per la sincronizzazione");
   const [sourceProviders, setSourceProviders] = useState<SourceProvider[]>([]);
@@ -175,8 +237,8 @@ export default function Home() {
   }, [tab, dailyReport]);
 
   useEffect(() => {
-    if (tab !== "rosa" || rosterSource || rosterLoading) return;
-    // Il caricamento parte solo quando l'utente apre per la prima volta la rosa live.
+    if ((tab !== "rosa" && tab !== "radar") || rosterSource || rosterLoading) return;
+    // Radar e rosa condividono la stessa base live, caricata una sola volta.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setRosterLoading(true);
     fetch("/api/players", { cache: "no-store" })
@@ -202,18 +264,29 @@ export default function Home() {
       .finally(() => setMarketNewsLoading(false));
   }, [tab, marketNewsSource]);
 
-  const filtered = useMemo(() => players
+  const radarPlayers = useMemo(() => {
+    const ranked = livePlayers
+      .filter((player) => player.statsSeason !== null && (player.appearances >= 3 || player.minutes >= 180))
+      .map(radarPlayer)
+      .sort((a, b) => b.score - a.score || b.form - a.form);
+    if (!ranked.length) return players;
+    return (["P", "D", "C", "A"] as Role[])
+      .flatMap((item) => ranked.filter((player) => player.role === item).slice(0, 8))
+      .sort((a, b) => b.score - a.score || b.form - a.form);
+  }, [livePlayers]);
+  const radarOpportunityCount = radarPlayers.filter((player) => player.verdict !== "Aspetta").length;
+  const filtered = useMemo(() => radarPlayers
     .filter(p => role === "Tutti" || p.role === role)
     .filter(p => `${p.name} ${p.club}`.toLowerCase().includes(query.toLowerCase()))
-    .sort((a, b) => b.score - a.score), [role, query]);
+    .sort((a, b) => b.score - a.score), [radarPlayers, role, query]);
 
-  const selected = players.find(p => p.id === selectedId) ?? players[0];
-  const comparedPlayers = compare.map(id => players.find(p => p.id === id)).filter(Boolean) as Player[];
+  const selected = radarPlayers.find(p => p.id === selectedId) ?? radarPlayers[0];
+  const comparedPlayers = compare.map(id => radarPlayers.find(p => p.id === id)).filter(Boolean) as Player[];
   const rosterTeams = useMemo(() => [...new Set(livePlayers.map((player) => player.team))].sort((a, b) => a.localeCompare(b, "it")), [livePlayers]);
   const radarShortlistNames = useMemo(() => new Set(shortlist
     .filter((key) => key.startsWith("radar:"))
-    .map((key) => players.find((player) => player.id === Number(key.slice(6)))?.name)
-    .filter(Boolean) as string[]), [shortlist]);
+    .map((key) => radarPlayers.find((player) => player.id === Number(key.slice(6)))?.name ?? players.find((player) => player.id === Number(key.slice(6)))?.name)
+    .filter(Boolean) as string[]), [shortlist, radarPlayers]);
   const filteredRoster = useMemo(() => livePlayers
     .filter((player) => !rosterOnlyShortlist || shortlist.includes(`roster:${player.id}`) || radarShortlistNames.has(player.name))
     .filter((player) => rosterRole === "Tutti" || player.role === rosterRole)
@@ -232,11 +305,11 @@ export default function Home() {
   }
 
   function isLiveShortlisted(player: LivePlayer) {
-    return shortlist.includes(`roster:${player.id}`) || radarShortlistNames.has(player.name);
+    return shortlist.includes(`roster:${player.id}`) || shortlist.includes(`radar:${player.id}`) || radarShortlistNames.has(player.name);
   }
 
   function toggleLiveShortlist(player: LivePlayer) {
-    const equivalentKeys = [`roster:${player.id}`, ...players.filter((item) => item.name === player.name).map((item) => `radar:${item.id}`)];
+    const equivalentKeys = [`roster:${player.id}`, `radar:${player.id}`, ...radarPlayers.filter((item) => item.name === player.name).map((item) => `radar:${item.id}`), ...players.filter((item) => item.name === player.name).map((item) => `radar:${item.id}`)];
     setShortlist((current) => equivalentKeys.some((key) => current.includes(key))
       ? current.filter((key) => !equivalentKeys.includes(key))
       : [...current, `roster:${player.id}`]);
@@ -309,7 +382,7 @@ export default function Home() {
 
   return (
     <main>
-      <div className="data-banner">SCENARIO PRE-ASTA 2026/27 <span>•</span> Dati dimostrativi, non quotazioni ufficiali</div>
+      <div className="data-banner">SCENARIO PRE-ASTA 2026/27 <span>•</span> Ranking live, quotazioni UNDICI non ufficiali</div>
       <header className="topbar">
         <button className="brand" onClick={() => setTab("radar")} aria-label="Vai alla home">
           <span className="brand-mark">U</span>
@@ -335,30 +408,30 @@ export default function Home() {
             <div>
               <p className="eyebrow">SERIE A · STAGIONE 2026/27</p>
               <h1>Il tuo vantaggio<br />prima dell’asta.</h1>
-              <p className="hero-copy">Numeri, contesto e giudizio tecnico in un’unica decisione. Nessun nome comprato solo per sentito dire.</p>
+              <p className="hero-copy">Classifica automatica sulla stagione precedente, anche per chi arriva da un campionato estero. Rendimento, titolarità, età, prezzo e rischio in un’unica decisione.</p>
             </div>
             <div className="hero-summary">
-              <div className="summary-top"><span>Radar opportunità</span><small>MODELLO DS v1.0</small></div>
-              <strong>7</strong><span className="summary-label">profili sotto quota</span>
-              <div className="summary-meter"><i style={{ width: "68%" }} /></div>
-              <div className="summary-bottom"><span>+3 dall’ultimo check</span><button onClick={() => setTab("mercato")}>Apri mercato →</button></div>
+              <div className="summary-top"><span>Radar opportunità</span><small>RANKING LIVE</small></div>
+              <strong>{radarOpportunityCount}</strong><span className="summary-label">profili da comprare o trattare</span>
+              <div className="summary-meter"><i style={{ width: `${Math.min(100, Math.round((radarOpportunityCount / Math.max(1, radarPlayers.length)) * 100))}%` }} /></div>
+              <div className="summary-bottom"><span>{rosterSource === "api-football" ? `${radarPlayers.length} classificati` : "Caricamento dati live"}</span><button onClick={() => setTab("mercato")}>Apri mercato →</button></div>
             </div>
           </section>
 
           <section className="workspace">
             <div className="board">
               <div className="board-head">
-                <div><p className="section-kicker">SHORTLIST INTELLIGENTE</p><h2>Giocatori da tavolo</h2></div>
+                <div><p className="section-kicker">CLASSIFICA AUTOMATICA · AGGIORNAMENTO GIORNALIERO</p><h2>I migliori per ruolo</h2></div>
                 <label className="search"><span>⌕</span><input value={query} onChange={e => setQuery(e.target.value)} placeholder="Cerca giocatore o club" aria-label="Cerca giocatore o club" /></label>
               </div>
               <div className="role-filters" aria-label="Filtra per ruolo">
-                {(["Tutti", "P", "D", "C", "A"] as const).map(item => <button key={item} onClick={() => setRole(item)} className={role === item ? "active" : ""}>{item === "Tutti" ? "Tutti" : roleLabels[item]}<span>{item === "Tutti" ? players.length : players.filter(p => p.role === item).length}</span></button>)}
+                {(["Tutti", "P", "D", "C", "A"] as const).map(item => <button key={item} onClick={() => setRole(item)} className={role === item ? "active" : ""}>{item === "Tutti" ? "Tutti" : roleLabels[item]}<span>{item === "Tutti" ? radarPlayers.length : radarPlayers.filter(p => p.role === item).length}</span></button>)}
               </div>
               <div className="table-labels"><span>Giocatore</span><span>Forma</span><span>Quota</span><span>DS score</span><span>Decisione</span><span /></div>
               <div className="player-list">
                 {filtered.map(player => (
                   <article key={player.id} className={`player-row ${selected.id === player.id ? "selected" : ""}`} onClick={() => setSelectedId(player.id)}>
-                    <div className="player-cell"><PlayerMark player={player} /><div><strong>{player.name}</strong><small><b>{player.role}</b> {player.club} · {player.age} anni</small></div></div>
+                    <div className="player-cell"><span className="ranking-position">{String(radarPlayers.findIndex((item) => item.id === player.id) + 1).padStart(2, "0")}</span><PlayerMark player={player} /><div><strong>{player.name}</strong><small><b>{player.role}</b> {player.club} · {player.age} anni</small></div></div>
                     <MiniTrend values={player.trend} />
                     <div className="price"><strong>{player.price}</strong><small>crediti</small></div>
                     <div className="score"><strong>{player.score}</strong><span>/100</span></div>
@@ -438,6 +511,7 @@ export default function Home() {
                 <div><span className="role-chip">{roleLabels[player.role]}</span><h2>{player.name}</h2><p>{player.team}{player.age ? ` · ${player.age} anni` : ""}</p></div>
                 {player.teamLogo && <img className="team-mini-logo" src={player.teamLogo} alt="" loading="lazy" />}
               </div>
+              <div className={`performance-origin ${selected.dataOrigin === "incoming-transfer" ? "import" : "italy"}`}><b>{selected.dataOrigin === "incoming-transfer" ? "NUOVO IN SERIE A" : "STORICO PRECEDENTE"}</b><span>{selected.statsSeason ?? "Stagione precedente"} · {selected.statsTeam ?? selected.club}{selected.statsLeague ? ` · ${selected.statsLeague}` : ""}</span></div>
               <div className="roster-tags">{player.age && player.age <= 23 && <span className="young-tag">U23</span>}{player.potential >= 80 && <span className="talent-tag">ALTO POTENZIALE</span>}{player.injured && <span className="injury-tag">STOP</span>}</div>
               <div className="roster-scoreline"><div><small>DS SCORE</small><strong>{Math.round(player.score)}</strong></div><div><small>POTENZIALE</small><strong>{Math.round(player.potential)}</strong></div><div className="roster-quote"><small>{player.officialQuote !== null ? "QUOTA UFFICIALE" : "STIMA UNDICI"}</small><strong>{Math.round(player.officialQuote ?? player.quoteEstimate)}</strong><span>crediti</span></div></div>
               <div className="roster-stats"><span><small>Pres.</small><b>{player.appearances}</b></span><span><small>Gol</small><b>{player.goals}</b></span><span><small>Assist</small><b>{player.assists}</b></span><span><small>Tiri p.</small><b>{player.shotsOn}</b></span><span><small>Pass. chiave</small><b>{player.keyPasses}</b></span><span><small>Dribbling</small><b>{player.dribblesSuccess}</b></span></div>
@@ -517,7 +591,7 @@ export default function Home() {
           <div className="page-heading compact"><p className="eyebrow">COMPARATORE DI RUOLO</p><h1>Scelta contro scelta.</h1><p>Confronta fino a tre profili. Le metriche sono normalizzate per ruolo.</p></div>
           <div className="compare-picker">
             <span>Aggiungi un giocatore</span>
-            <select aria-label="Aggiungi giocatore al confronto" value="" onChange={e => e.target.value && toggleCompare(Number(e.target.value))}><option value="">Seleziona dalla rosa…</option>{players.filter(p => !compare.includes(p.id)).map(p => <option value={p.id} key={p.id}>{p.name} · {p.role}</option>)}</select>
+            <select aria-label="Aggiungi giocatore al confronto" value="" onChange={e => e.target.value && toggleCompare(Number(e.target.value))}><option value="">Seleziona dal ranking…</option>{radarPlayers.filter(p => !compare.includes(p.id)).map(p => <option value={p.id} key={p.id}>{p.name} · {p.role}</option>)}</select>
           </div>
           <div className="compare-grid">
             {comparedPlayers.map(player => <article className="compare-card" key={player.id}>

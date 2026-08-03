@@ -16,7 +16,7 @@ type ApiPlayerStats = {
   player: { id: number; name: string; firstname?: string | null; lastname?: string | null; age?: number | null; birth?: { date?: string | null }; nationality?: string | null; height?: string | null; weight?: string | null; injured?: boolean; photo?: string | null };
   statistics: Array<{
     team?: { id?: number; name?: string; logo?: string };
-    league?: { id?: number; season?: number };
+    league?: { id?: number; name?: string; country?: string; season?: number };
     games?: { appearences?: number | null; lineups?: number | null; minutes?: number | null; position?: string | null; rating?: string | null };
     shots?: { total?: number | null; on?: number | null };
     goals?: { total?: number | null; assists?: number | null };
@@ -27,6 +27,19 @@ type ApiPlayerStats = {
 };
 
 type ApiInjury = { player?: { id?: number; name?: string }; type?: string; reason?: string };
+type ApiTransfer = {
+  player?: { id?: number; name?: string };
+  update?: string;
+  transfers?: Array<{
+    date?: string;
+    type?: string;
+    teams?: {
+      in?: { id?: number; name?: string; logo?: string };
+      out?: { id?: number; name?: string; logo?: string };
+    };
+  }>;
+};
+type ApiStatistic = ApiPlayerStats["statistics"][number];
 
 // Partecipanti ufficiali 2026/27 pubblicati da Lega Serie A.
 // La lista evita che i limiti stagionali del piano API gratuito nascondano le neopromosse.
@@ -135,6 +148,55 @@ function keepExisting(base: SerieAPlayerRecord, existing?: SerieAPlayerRecord): 
   };
 }
 
+function performanceRecord(base: SerieAPlayerRecord, item: ApiPlayerStats, stats: ApiStatistic, statsSeason: number, origin: "serie-a" | "incoming-transfer", extraRaw?: Record<string, unknown>) {
+  const rating = Number.parseFloat(stats.games?.rating ?? "");
+  const updated: SerieAPlayerRecord = {
+    ...base,
+    firstname: item.player.firstname ?? base.firstname ?? null,
+    lastname: item.player.lastname ?? base.lastname ?? null,
+    age: item.player.age ?? base.age ?? null,
+    birth_date: item.player.birth?.date ?? base.birth_date ?? null,
+    nationality: item.player.nationality ?? base.nationality ?? null,
+    height: item.player.height ?? base.height ?? null,
+    weight: item.player.weight ?? base.weight ?? null,
+    photo_url: item.player.photo ?? base.photo_url ?? null,
+    stats_season: statsSeason,
+    appearances: stats.games?.appearences ?? 0,
+    starts: stats.games?.lineups ?? 0,
+    minutes: stats.games?.minutes ?? 0,
+    rating: Number.isFinite(rating) ? rating : null,
+    goals: stats.goals?.total ?? 0,
+    assists: stats.goals?.assists ?? 0,
+    shots_total: stats.shots?.total ?? 0,
+    shots_on: stats.shots?.on ?? 0,
+    passes_total: stats.passes?.total ?? 0,
+    key_passes: stats.passes?.key ?? 0,
+    pass_accuracy: stats.passes?.accuracy ?? 0,
+    dribbles_attempts: stats.dribbles?.attempts ?? 0,
+    dribbles_success: stats.dribbles?.success ?? 0,
+    tackles: stats.tackles?.total ?? 0,
+    current_injured: item.player.injured ?? base.current_injured ?? false,
+    raw: {
+      provider: item,
+      ...extraRaw,
+      performanceContext: {
+        team: stats.team?.name ?? null,
+        league: stats.league?.name ?? (stats.league?.id === SERIE_A_LEAGUE_ID ? "Serie A" : null),
+        country: stats.league?.country ?? null,
+        origin,
+      },
+    },
+  };
+  const scores = calculatePlayerScores(updated);
+  return { ...updated, quote_estimate: scores.quoteEstimate, ds_score: scores.dsScore, potential_score: scores.potential };
+}
+
+function bestStatistic(statistics: ApiStatistic[], preferredTeamId?: number) {
+  const preferred = preferredTeamId ? statistics.filter((entry) => entry.team?.id === preferredTeamId) : [];
+  const pool = preferred.length ? preferred : statistics;
+  return [...pool].sort((a, b) => (b.games?.minutes ?? 0) - (a.games?.minutes ?? 0) || (b.games?.appearences ?? 0) - (a.games?.appearences ?? 0))[0];
+}
+
 export async function syncSerieASquads() {
   const existingRows = await getSerieAPlayers();
   const existing = new Map(existingRows.map((player) => [player.provider_id, player]));
@@ -226,41 +288,115 @@ export async function syncPreviousSeasonStats() {
     const stats = item.statistics.find((entry) => entry.league?.id === SERIE_A_LEAGUE_ID) ?? item.statistics[0];
     if (!stats) continue;
     const injury = injuryMap.get(item.player.id);
-    const rating = Number.parseFloat(stats.games?.rating ?? "");
-    const updated: SerieAPlayerRecord = {
+    const updated = performanceRecord({
       ...base,
-      firstname: item.player.firstname ?? base.firstname ?? null,
-      lastname: item.player.lastname ?? base.lastname ?? null,
-      age: item.player.age ?? base.age ?? null,
-      birth_date: item.player.birth?.date ?? base.birth_date ?? null,
-      nationality: item.player.nationality ?? base.nationality ?? null,
-      height: item.player.height ?? base.height ?? null,
-      weight: item.player.weight ?? base.weight ?? null,
-      photo_url: item.player.photo ?? base.photo_url ?? null,
-      stats_season: statsSeason,
-      appearances: stats.games?.appearences ?? 0,
-      starts: stats.games?.lineups ?? 0,
-      minutes: stats.games?.minutes ?? 0,
-      rating: Number.isFinite(rating) ? rating : null,
-      goals: stats.goals?.total ?? 0,
-      assists: stats.goals?.assists ?? 0,
-      shots_total: stats.shots?.total ?? 0,
-      shots_on: stats.shots?.on ?? 0,
-      passes_total: stats.passes?.total ?? 0,
-      key_passes: stats.passes?.key ?? 0,
-      pass_accuracy: stats.passes?.accuracy ?? 0,
-      dribbles_attempts: stats.dribbles?.attempts ?? 0,
-      dribbles_success: stats.dribbles?.success ?? 0,
-      tackles: stats.tackles?.total ?? 0,
       current_injured: item.player.injured ?? Boolean(injury),
       injuries_count: injury?.count ?? 0,
       injury_note: injury?.note ?? null,
-      raw: item,
-    };
-    const scores = calculatePlayerScores(updated);
-    current.set(item.player.id, { ...updated, quote_estimate: scores.quoteEstimate, ds_score: scores.dsScore, potential_score: scores.potential });
+    }, item, stats, statsSeason, "serie-a");
+    current.set(item.player.id, updated);
     enriched += 1;
   }
   await upsertSerieAPlayers([...current.values()]);
   return { players: current.size, enriched, pages, calls, statsSeason, partial: Boolean(stoppedReason), stoppedReason };
+}
+
+function mostCommonStatsSeason(players: SerieAPlayerRecord[]) {
+  const counts = new Map<number, number>();
+  for (const player of players) {
+    if (player.stats_season) counts.set(player.stats_season, (counts.get(player.stats_season) ?? 0) + 1);
+  }
+  return [...counts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? previousSeason();
+}
+
+function alreadyHasIncomingContext(player: SerieAPlayerRecord, statsSeason: number) {
+  if (player.stats_season !== statsSeason || !player.raw || typeof player.raw !== "object") return false;
+  const context = (player.raw as { performanceContext?: { origin?: string } }).performanceContext;
+  return context?.origin === "incoming-transfer";
+}
+
+export async function syncIncomingTransferStats() {
+  const currentRows = await getSerieAPlayers();
+  if (!currentRows.length) throw new Error("Rosa Serie A non ancora sincronizzata");
+  const current = new Map(currentRows.map((player) => [player.provider_id, player]));
+  const resolved = await resolveCurrentSerieATeams();
+  const currentTeamIds = new Set(resolved.teams.map((entry) => entry.team.id));
+  const currentPlayerIds = new Set(currentRows.map((player) => player.provider_id));
+  const seasonStart = `${season()}-01-01`;
+  const incoming = new Map<number, { playerId: number; playerName: string; date: string; type: string; fromTeamId?: number; fromTeam: string; toTeam: string }>();
+  let calls = resolved.calls;
+  let stoppedReason: string | null = null;
+
+  for (const entry of resolved.teams) {
+    try {
+      const result = await request<ApiTransfer[]>(`/transfers?team=${entry.team.id}`, true);
+      calls += 1;
+      for (const item of result.response) {
+        const playerId = item.player?.id;
+        if (!playerId || !currentPlayerIds.has(playerId)) continue;
+        for (const transfer of item.transfers ?? []) {
+          const destinationId = transfer.teams?.in?.id;
+          const originId = transfer.teams?.out?.id;
+          const date = transfer.date ?? "";
+          if (destinationId !== entry.team.id || !date || date < seasonStart || !originId || currentTeamIds.has(originId)) continue;
+          const candidate = {
+            playerId,
+            playerName: item.player?.name ?? current.get(playerId)?.name ?? "Giocatore",
+            date,
+            type: transfer.type ?? "Trasferimento",
+            fromTeamId: originId,
+            fromTeam: transfer.teams?.out?.name ?? "Club precedente",
+            toTeam: transfer.teams?.in?.name ?? entry.team.name,
+          };
+          const previous = incoming.get(playerId);
+          if (!previous || candidate.date > previous.date) incoming.set(playerId, candidate);
+        }
+      }
+    } catch (error) {
+      stoppedReason = error instanceof Error ? error.message : "Limite trasferimenti raggiunto";
+      break;
+    }
+  }
+
+  const statsSeason = Number(process.env.API_FOOTBALL_STATS_SEASON) || mostCommonStatsSeason(currentRows);
+  const limit = Math.max(1, Math.min(10, Number(process.env.API_FOOTBALL_IMPORTS_PER_RUN) || 6));
+  const candidates = [...incoming.values()]
+    .filter((transfer) => {
+      const player = current.get(transfer.playerId);
+      return player && !alreadyHasIncomingContext(player, statsSeason);
+    })
+    .sort((a, b) => b.date.localeCompare(a.date))
+    .slice(0, limit);
+  const updates: SerieAPlayerRecord[] = [];
+
+  for (const transfer of candidates) {
+    const base = current.get(transfer.playerId);
+    if (!base) continue;
+    try {
+      const result = await request<ApiPlayerStats[]>(`/players?id=${transfer.playerId}&season=${statsSeason}`, true);
+      calls += 1;
+      const item = result.response[0];
+      if (!item) continue;
+      const stats = bestStatistic(item.statistics, transfer.fromTeamId);
+      if (!stats || (stats.games?.appearences ?? 0) < 1) continue;
+      const updated = performanceRecord(base, item, stats, statsSeason, "incoming-transfer", { transfer });
+      current.set(transfer.playerId, updated);
+      updates.push(updated);
+    } catch (error) {
+      stoppedReason = error instanceof Error ? error.message : "Limite statistiche raggiunto";
+      break;
+    }
+  }
+
+  if (updates.length) await upsertSerieAPlayers(updates);
+  return {
+    detected: incoming.size,
+    candidates: candidates.length,
+    enriched: updates.length,
+    pending: Math.max(0, incoming.size - currentRows.filter((player) => alreadyHasIncomingContext(player, statsSeason)).length - updates.length),
+    calls,
+    statsSeason,
+    partial: Boolean(stoppedReason),
+    stoppedReason,
+  };
 }

@@ -14,6 +14,10 @@
       "schedule": "0 4 * * *"
     },
     {
+      "path": "/api/cron/sync-imports",
+      "schedule": "0 5 * * *"
+    },
+    {
       "path": "/api/cron/daily-report",
       "schedule": "0 6 * * *"
     }

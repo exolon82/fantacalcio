@@ -83,8 +83,36 @@ export type SerieAPlayer = {
   officialRole: string | null;
   score: number;
   potential: number;
+  previousTeam: string | null;
+  previousLeague: string | null;
+  previousCountry: string | null;
+  performanceOrigin: "serie-a" | "incoming-transfer" | null;
   updatedAt: string | null;
 };
+
+type PerformanceContext = {
+  team?: string | null;
+  league?: string | null;
+  country?: string | null;
+  origin?: "serie-a" | "incoming-transfer" | null;
+};
+
+function performanceContext(raw: unknown): PerformanceContext {
+  if (!raw || typeof raw !== "object") return {};
+  const rawObject = raw as { performanceContext?: unknown; provider?: unknown; statistics?: unknown };
+  const context = rawObject.performanceContext;
+  if (context && typeof context === "object") return context as PerformanceContext;
+  const provider = rawObject.provider && typeof rawObject.provider === "object" ? rawObject.provider as { statistics?: unknown } : rawObject;
+  const statistics = Array.isArray(provider.statistics) ? provider.statistics : [];
+  const first = statistics[0] as { team?: { name?: string | null }; league?: { id?: number; name?: string | null; country?: string | null } } | undefined;
+  if (!first) return {};
+  return {
+    team: first.team?.name ?? null,
+    league: first.league?.name ?? (first.league?.id === 135 ? "Serie A" : null),
+    country: first.league?.country ?? null,
+    origin: first.league?.id === 135 ? "serie-a" : "incoming-transfer",
+  };
+}
 
 export function roleFromPosition(position?: string | null): SerieARole {
   const normalised = (position ?? "").toLowerCase();
@@ -127,6 +155,7 @@ export function calculatePlayerScores(player: Partial<SerieAPlayerRecord>) {
 }
 
 export function toClientPlayer(row: SerieAPlayerRecord): SerieAPlayer {
+  const context = performanceContext(row.raw);
   return {
     id: row.provider_id,
     name: row.name,
@@ -164,7 +193,10 @@ export function toClientPlayer(row: SerieAPlayerRecord): SerieAPlayer {
     officialRole: row.official_role ?? null,
     score: row.ds_score,
     potential: row.potential_score,
+    previousTeam: context.team ?? null,
+    previousLeague: context.league ?? null,
+    previousCountry: context.country ?? null,
+    performanceOrigin: context.origin ?? null,
     updatedAt: row.updated_at ?? null,
   };
 }
-

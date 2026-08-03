@@ -71,12 +71,14 @@ nav button.active::after { content: ""; height: 3px; background: var(--lime); po
 .player-row.selected { background: #f0f7e7; }
 .player-row.selected::before { content: ""; position: absolute; left: -1px; top: 0; bottom: 0; width: 4px; background: var(--green); }
 .player-cell { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.ranking-position { width: 22px; flex: 0 0 22px; color: #9aa2a3; font-size: 9px; font-weight: 900; letter-spacing: .08em; }
 .player-cell > div:last-child { min-width: 0; }
 .player-cell strong { font-size: 13px; display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .player-cell small { display: block; margin-top: 5px; color: #7a8388; font-size: 10px; }
 .player-cell small b { display: inline-grid; place-items: center; width: 18px; height: 16px; background: var(--ink); color: white; margin-right: 5px; font-size: 8px; }
 .player-mark { width: 39px; height: 39px; flex: 0 0 auto; border-radius: 50%; display: grid; place-items: center; color: white; background: #697985; border: 3px solid #e9e8df; font-weight: 900; font-size: 11px; }
 .player-mark.large { width: 60px; height: 60px; font-size: 15px; border-width: 4px; }
+.performance-origin { margin: 0 25px 18px; padding: 11px 13px; display: flex; justify-content: space-between; gap: 12px; background: #edf0e8; border-left: 3px solid var(--green); font-size: 8px; line-height: 1.45; }.performance-origin b { color: var(--green); letter-spacing: .1em; }.performance-origin span { color: #697478; text-align: right; }.performance-origin.import { background: #f5edc8; border-left-color: #c58e20; }.performance-origin.import b { color: #775902; }
 .club-int { background: #1662a2; }.club-rom { background: #8b2530; }.club-juv { background: #25292d; }.club-nap { background: #2185b5; }.club-mil { background: #b12c32; }.club-bol { background: #22366b; }.club-fio { background: #654a9f; }
 .mini-trend { height: 28px; width: 70px; display: flex; align-items: end; gap: 3px; }
 .mini-trend span { flex: 1; background: #a9b8af; border-radius: 1px 1px 0 0; }

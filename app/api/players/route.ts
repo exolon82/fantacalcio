@@ -43,6 +43,10 @@ function demoPlayers(): SerieAPlayer[] {
     officialRole: null,
     score: player.score,
     potential: player.age <= 23 ? Math.min(99, player.score + 10) : player.score,
+    previousTeam: player.club,
+    previousLeague: "Serie A",
+    previousCountry: "Italy",
+    performanceOrigin: "serie-a",
     updatedAt: null,
   }));
 }
@@ -58,4 +62,3 @@ export async function GET() {
     return NextResponse.json({ players: demoPlayers(), source: "demo", total: 12, syncedAt: null, message: error instanceof Error ? error.message : "Database giocatori non disponibile" });
   }
 }
-
