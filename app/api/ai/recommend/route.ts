@@ -1,45 +1,57 @@
 import { NextResponse } from "next/server";
 import { askScoutAI } from "@/lib/ai";
-import { isStar, scoutPlayers, type ScoutPlayer } from "@/lib/scouting-data";
+import { scoutPlayers, type ScoutPlayer, type ScoutRole } from "@/lib/scouting-data";
 import { getSerieAPlayers } from "@/lib/supabase";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 90;
 
-type Pick = { player: string; role: string; tier: "Stella" | "Low-cost"; maxBid: number; reason: string; risk: string };
+type PickTier = "Leader" | "Low-cost" | "Portiere";
+type Pick = { player: string; club: string; role: ScoutRole; tier: PickTier; maxBid: number; reason: string; risk: string };
 type AiPlan = {
   title: string;
   formation: string;
   budget: number;
   estimatedSpend: number;
-  starsUsed: number;
-  stars: Pick[];
+  leadersUsed: number;
+  goalkeepers: Pick[];
+  leaders: Pick[];
   lowCost: Pick[];
   tacticalNote: string;
   budgetRule: string;
 };
 
 const LEAGUE_BUDGET = 250;
-const STARTING_ELEVEN_SIZE = 11;
-const ROLE_ORDER = ["P", "D", "C", "A"] as const;
-const FORMATION_ROLES: Record<string, Record<(typeof ROLE_ORDER)[number], number>> = {
-  "3-4-3": { P: 1, D: 3, C: 4, A: 3 },
-  "3-5-2": { P: 1, D: 3, C: 5, A: 2 },
-  "4-3-3": { P: 1, D: 4, C: 3, A: 3 },
-  "4-4-2": { P: 1, D: 4, C: 4, A: 2 },
-};
+const ROLE_ORDER: ScoutRole[] = ["P", "D", "C", "A"];
+const DEPARTMENT_ROLES: ScoutRole[] = ["D", "C", "A"];
+const SQUAD_REQUIREMENTS: Record<ScoutRole, number> = { P: 3, D: 8, C: 8, A: 6 };
+const LEADERS_PER_DEPARTMENT = 2;
+const LOW_COST_LIMIT = 10;
 
 const pickProperties = {
-  player: { type: "string" }, role: { type: "string", enum: ["P", "D", "C", "A"] }, tier: { type: "string", enum: ["Stella", "Low-cost"] }, maxBid: { type: "integer", minimum: 1 }, reason: { type: "string" }, risk: { type: "string" },
+  player: { type: "string" },
+  club: { type: "string" },
+  role: { type: "string", enum: ["P", "D", "C", "A"] },
+  tier: { type: "string", enum: ["Leader", "Low-cost", "Portiere"] },
+  maxBid: { type: "integer", minimum: 1 },
+  reason: { type: "string" },
+  risk: { type: "string" },
 };
 const planSchema = {
-  type: "object", additionalProperties: false,
-  required: ["title", "formation", "budget", "estimatedSpend", "starsUsed", "stars", "lowCost", "tacticalNote", "budgetRule"],
+  type: "object",
+  additionalProperties: false,
+  required: ["title", "formation", "budget", "estimatedSpend", "leadersUsed", "goalkeepers", "leaders", "lowCost", "tacticalNote", "budgetRule"],
   properties: {
-    title: { type: "string" }, formation: { type: "string" }, budget: { type: "integer" }, estimatedSpend: { type: "integer" }, starsUsed: { type: "integer", minimum: 0, maximum: 2 },
-    stars: { type: "array", maxItems: 2, items: { type: "object", additionalProperties: false, required: Object.keys(pickProperties), properties: pickProperties } },
-    lowCost: { type: "array", minItems: 9, maxItems: 10, items: { type: "object", additionalProperties: false, required: Object.keys(pickProperties), properties: pickProperties } },
-    tacticalNote: { type: "string" }, budgetRule: { type: "string" },
+    title: { type: "string" },
+    formation: { type: "string" },
+    budget: { type: "integer" },
+    estimatedSpend: { type: "integer" },
+    leadersUsed: { type: "integer", minimum: 6, maximum: 6 },
+    goalkeepers: { type: "array", minItems: 3, maxItems: 3, items: { type: "object", additionalProperties: false, required: Object.keys(pickProperties), properties: pickProperties } },
+    leaders: { type: "array", minItems: 6, maxItems: 6, items: { type: "object", additionalProperties: false, required: Object.keys(pickProperties), properties: pickProperties } },
+    lowCost: { type: "array", minItems: 16, maxItems: 16, items: { type: "object", additionalProperties: false, required: Object.keys(pickProperties), properties: pickProperties } },
+    tacticalNote: { type: "string" },
+    budgetRule: { type: "string" },
   },
 };
 
@@ -52,148 +64,197 @@ async function loadCandidates(): Promise<ScoutPlayer[]> {
       const starts = row.starts ?? 0;
       const price = Math.round(row.official_quote ?? row.quote_estimate);
       const score = Math.round(row.ds_score);
-      const potential = Math.round(row.potential_score);
-      const risk = row.current_injured || (row.injuries_count ?? 0) >= 3 ? "Alto" : (row.injuries_count ?? 0) > 0 || appearances < 8 ? "Medio" : "Basso";
+      const potentialScore = Math.round(row.potential_score);
       return {
         id: row.provider_id,
         name: row.name,
         role: row.role,
         club: row.team_name,
-        clubCode: row.team_code ?? row.team_name.slice(0, 3).toUpperCase(),
         age: row.age ?? 28,
         price,
-        priceDelta: 0,
         score,
-        form: score,
-        starter: appearances ? Math.round((starts / appearances) * 100) : 45,
-        risk,
         goals: row.goals ?? 0,
         assists: row.assists ?? 0,
         shots: appearances ? Number(((row.shots_on ?? 0) / appearances).toFixed(2)) : 0,
         passes: appearances ? Number(((row.passes_total ?? 0) / appearances).toFixed(1)) : 0,
         dribbles: appearances ? Number(((row.dribbles_success ?? 0) / appearances).toFixed(1)) : 0,
         injuries: row.injuries_count ?? 0,
-        minutes: row.minutes ?? 0,
-        trend: [Math.max(0, score - 7), Math.max(0, score - 5), Math.max(0, score - 3), Math.max(0, score - 2), score, potential],
-        verdict: score >= 82 && price <= 30 ? "Compra" : score >= 68 ? "Tratta" : "Aspetta",
-        ceiling: row.age && row.age <= 23 ? `Potenziale ${potential}/100` : `DS score ${score}/100`,
-        why: row.age && row.age <= 23 ? `Giovane da ${potential}/100 di potenziale: valutare minuti, prezzo e crescita.` : `Profilo valutato su rendimento, titolarità, disponibilità e costo.`,
-        watch: row.current_injured ? row.injury_note ?? "Condizione fisica da verificare" : "Gerarchie e prezzo d’asta",
+        starter: appearances ? Math.round((starts / appearances) * 100) : 45,
         news: row.official_quote ? "Quotazione ufficiale disponibile" : "Quota stimata UNDICI, in attesa del Listone ufficiale",
-        newsTone: row.current_injured ? "down" : row.age && row.age <= 23 ? "up" : "flat",
+        why: row.age && row.age <= 20
+          ? `Proiezione giovane ${potentialScore}/100: minuti e crescita da verificare nel precampionato.`
+          : `Profilo valutato su rendimento, titolarità, disponibilità e costo.`,
+        youthNationalTeam: null,
       };
     });
-    const top = [...mapped].sort((a, b) => b.score - a.score).slice(0, 55);
-    const value = [...mapped].sort((a, b) => (b.score + potential(b) - b.price * 1.5) - (a.score + potential(a) - a.price * 1.5)).slice(0, 45);
-    const youth = [...mapped].filter((player) => player.age <= 25).sort((a, b) => potential(b) - potential(a)).slice(0, 45);
-    return [...new Map([...top, ...value, ...youth].map((player) => [player.id, player])).values()].slice(0, 70);
+    const roleLimits: Record<ScoutRole, number> = { P: 18, D: 38, C: 38, A: 30 };
+    return ROLE_ORDER.flatMap((role) => mapped
+      .filter((player) => player.role === role)
+      .sort((a, b) => futureStarRank(b) - futureStarRank(a))
+      .slice(0, roleLimits[role]));
   } catch {
     return scoutPlayers;
   }
 }
 
 function potential(player: ScoutPlayer) {
-  const youthBonus = player.age <= 21 ? 14 : player.age <= 23 ? 10 : player.age <= 25 ? 5 : 0;
-  return Math.min(99, player.score + youthBonus);
+  const youthBonus = player.age <= 18 ? 20 : player.age <= 19 ? 17 : player.age <= 21 ? 14 : player.age <= 23 ? 10 : player.age <= 25 ? 5 : 0;
+  const nationalBonus = player.youthNationalTeam ? 10 : 0;
+  return Math.min(99, player.score + youthBonus + nationalBonus);
 }
 
-function toPick(player: ScoutPlayer, tier: Pick["tier"], budgetFactor = 1): Pick {
+function leaderRank(player: ScoutPlayer) {
+  return player.score * 1.35 + player.starter * .45 + player.goals * 2.4 + player.assists * 1.7 - player.injuries * 5;
+}
+
+function futureStarRank(player: ScoutPlayer) {
+  const ageBonus = player.age <= 18 ? 30 : player.age <= 19 ? 25 : player.age <= 21 ? 18 : player.age <= 23 ? 11 : 0;
+  const nationalBonus = player.youthNationalTeam ? 24 : 0;
+  return potential(player) * 1.25 + player.starter * .25 + ageBonus + nationalBonus - player.price * 1.8 - player.injuries * 5;
+}
+
+function riskLabel(player: ScoutPlayer) {
+  return player.injuries >= 3 || player.starter < 45 ? "Alto" : player.injuries > 0 || player.starter < 72 ? "Medio" : "Basso";
+}
+
+function basePick(player: ScoutPlayer, tier: PickTier, reason?: string): Pick {
+  const lowCostReason = player.youthNationalTeam
+    ? `Segnale ${player.youthNationalTeam}: ${player.why}`
+    : player.age <= 19
+      ? `Profilo Under ${player.age + 1} ad alta proiezione; convocazioni giovanili da verificare. ${player.why}`
+      : player.price > LOW_COST_LIMIT
+        ? `Da prendere solo se resta entro 10 crediti. ${player.why}`
+        : player.why;
   return {
-    player: player.name, role: player.role, tier,
-    maxBid: Math.max(1, Math.round((player.price + (player.score >= 85 ? 2 : 0)) * budgetFactor)),
-    reason: player.why,
-    risk: player.injuries >= 3 || player.starter < 50 ? "Alto" : player.injuries > 0 || player.starter < 75 ? "Medio" : "Basso",
+    player: player.name,
+    club: player.club,
+    role: player.role,
+    tier,
+    maxBid: tier === "Low-cost" ? Math.min(LOW_COST_LIMIT, Math.max(1, player.price)) : Math.max(1, player.price),
+    reason: reason ?? (tier === "Low-cost" ? lowCostReason : player.why),
+    risk: riskLabel(player),
   };
 }
 
-function valueRank(player: ScoutPlayer) {
-  return player.score + potential(player) + player.starter * .35 - player.price * 1.25 - player.injuries * 4;
+function chooseGoalkeepers(pool: ScoutPlayer[], selected: Set<string>): Pick[] {
+  const goalkeepers = pool.filter((player) => player.role === "P");
+  const byClub = new Map<string, ScoutPlayer[]>();
+  for (const player of goalkeepers) byClub.set(player.club, [...(byClub.get(player.club) ?? []), player]);
+  const pairedClubs = [...byClub.entries()]
+    .filter(([, players]) => players.length >= 2)
+    .map(([club, players]) => ({ club, players: [...players].sort((a, b) => leaderRank(b) - leaderRank(a)) }))
+    .sort((a, b) => leaderRank(b.players[0]) - leaderRank(a.players[0]));
+  const pair = pairedClubs[0]?.players.slice(0, 2) ?? goalkeepers.sort((a, b) => leaderRank(b) - leaderRank(a)).slice(0, 2);
+  for (const player of pair) selected.add(player.name.toLocaleLowerCase("it"));
+  const third = goalkeepers
+    .filter((player) => !selected.has(player.name.toLocaleLowerCase("it")))
+    .sort((a, b) => futureStarRank(b) - futureStarRank(a))[0];
+  if (third) selected.add(third.name.toLocaleLowerCase("it"));
+  const chosen = [...pair, ...(third ? [third] : [])].slice(0, SQUAD_REQUIREMENTS.P);
+  return chosen.map((player, index) => basePick(
+    player,
+    "Portiere",
+    index === 0
+      ? `Prima scelta del pacchetto ${player.club}.`
+      : index === 1 && player.club === chosen[0]?.club
+        ? `Vice obbligatorio di ${chosen[0].name}: stessa squadra, copertura garantita.`
+        : `Terzo portiere scelto per copertura, costo e possibilità di minuti.`,
+  ));
 }
 
-function balanceSpend(picks: Pick[], targetSpend: number): Pick[] {
-  const rawTotal = picks.reduce((sum, pick) => sum + Math.max(1, pick.maxBid), 0);
-  if (!rawTotal) return picks;
-  const scale = targetSpend / rawTotal;
-  const bids = picks.map((pick) => Math.max(1, Math.floor(pick.maxBid * scale)));
-  let difference = targetSpend - bids.reduce((sum, bid) => sum + bid, 0);
-  const priority = picks.map((_, index) => index).sort((a, b) => picks[b].maxBid - picks[a].maxBid);
+function rebalanceSpend(goalkeepers: Pick[], leaders: Pick[], lowCost: Pick[], targetSpend: number) {
+  const balancedGoalkeepers = goalkeepers.map((pick, index) => ({ ...pick, maxBid: index === 0 ? Math.max(5, pick.maxBid) : Math.min(index === 1 ? 3 : 5, pick.maxBid) }));
+  const balancedLeaders = leaders.map((pick) => ({ ...pick, maxBid: Math.max(12, pick.maxBid) }));
+  const balancedLowCost = lowCost.map((pick) => ({ ...pick, maxBid: Math.min(LOW_COST_LIMIT, Math.max(1, pick.maxBid)) }));
+  let currentSpend = [...balancedGoalkeepers, ...balancedLeaders, ...balancedLowCost].reduce((sum, pick) => sum + pick.maxBid, 0);
+  let difference = targetSpend - currentSpend;
   let cursor = 0;
-  while (difference !== 0 && priority.length) {
-    const index = priority[cursor % priority.length];
-    if (difference > 0) {
-      bids[index] += 1;
-      difference -= 1;
-    } else if (bids[index] > 1) {
-      bids[index] -= 1;
+  while (difference > 0 && balancedLeaders.length) {
+    balancedLeaders[cursor % balancedLeaders.length].maxBid += 1;
+    difference -= 1;
+    cursor += 1;
+  }
+  cursor = 0;
+  while (difference < 0 && balancedLeaders.some((pick) => pick.maxBid > 12)) {
+    const pick = balancedLeaders[cursor % balancedLeaders.length];
+    if (pick.maxBid > 12) {
+      pick.maxBid -= 1;
       difference += 1;
     }
     cursor += 1;
   }
-  return picks.map((pick, index) => ({ ...pick, maxBid: bids[index] }));
+  cursor = 0;
+  while (difference < 0 && balancedLowCost.some((pick) => pick.maxBid > 1)) {
+    const pick = balancedLowCost[cursor % balancedLowCost.length];
+    if (pick.maxBid > 1) {
+      pick.maxBid -= 1;
+      difference += 1;
+    }
+    cursor += 1;
+  }
+  currentSpend = [...balancedGoalkeepers, ...balancedLeaders, ...balancedLowCost].reduce((sum, pick) => sum + pick.maxBid, 0);
+  return { goalkeepers: balancedGoalkeepers, leaders: balancedLeaders, lowCost: balancedLowCost, estimatedSpend: currentSpend };
 }
 
 function sanitisePlan(plan: AiPlan | null, budget: number, formation: string, risk: string, candidates: ScoutPlayer[]): AiPlan {
   const pool = [...new Map([...candidates, ...scoutPlayers].map((player) => [player.name.toLocaleLowerCase("it"), player])).values()];
   const byName = new Map(pool.map((player) => [player.name.toLocaleLowerCase("it"), player]));
-  const proposedPicks = new Map([...(plan?.stars ?? []), ...(plan?.lowCost ?? [])].map((pick) => [pick.player.toLocaleLowerCase("it"), pick]));
+  const proposed = new Map([...(plan?.leaders ?? []), ...(plan?.lowCost ?? [])].map((pick) => [pick.player.toLocaleLowerCase("it"), pick]));
   const selected = new Set<string>();
+  const goalkeepers = chooseGoalkeepers(pool, selected);
 
-  const starCandidates = [
-    ...(plan?.stars ?? []).map((pick) => byName.get(pick.player.toLocaleLowerCase("it"))).filter((player): player is ScoutPlayer => Boolean(player && isStar(player))),
-    ...pool.filter(isStar).sort((a, b) => valueRank(b) - valueRank(a)),
-  ];
-  const starPlayers = starCandidates.filter((player) => {
-    const key = player.name.toLocaleLowerCase("it");
-    if (selected.has(key)) return false;
-    selected.add(key);
-    return true;
-  }).slice(0, 2);
+  const leaderPlayers: ScoutPlayer[] = [];
+  for (const role of DEPARTMENT_ROLES) {
+    const proposedRole = (plan?.leaders ?? [])
+      .map((pick) => byName.get(pick.player.toLocaleLowerCase("it")))
+      .filter((player): player is ScoutPlayer => Boolean(player && player.role === role));
+    const candidatesForRole = [...proposedRole, ...pool.filter((player) => player.role === role).sort((a, b) => leaderRank(b) - leaderRank(a))];
+    for (const player of candidatesForRole) {
+      if (leaderPlayers.filter((item) => item.role === role).length >= LEADERS_PER_DEPARTMENT) break;
+      const key = player.name.toLocaleLowerCase("it");
+      if (selected.has(key)) continue;
+      selected.add(key);
+      leaderPlayers.push(player);
+    }
+  }
 
   const lowCostPlayers: ScoutPlayer[] = [];
-  const requirements = FORMATION_ROLES[formation] ?? FORMATION_ROLES["3-4-3"];
-  for (const role of ROLE_ORDER) {
-    const starsInRole = starPlayers.filter((player) => player.role === role).length;
-    const needed = Math.max(0, requirements[role] - starsInRole);
+  for (const role of DEPARTMENT_ROLES) {
+    const needed = SQUAD_REQUIREMENTS[role] - LEADERS_PER_DEPARTMENT;
     const roleCandidates = pool
-      .filter((player) => player.role === role && !isStar(player) && !selected.has(player.name.toLocaleLowerCase("it")))
-      .sort((a, b) => Number(proposedPicks.has(b.name.toLocaleLowerCase("it"))) - Number(proposedPicks.has(a.name.toLocaleLowerCase("it"))) || valueRank(b) - valueRank(a));
+      .filter((player) => player.role === role && !selected.has(player.name.toLocaleLowerCase("it")))
+      .sort((a, b) => Number(b.price <= LOW_COST_LIMIT) - Number(a.price <= LOW_COST_LIMIT)
+        || Number(Boolean(b.youthNationalTeam)) - Number(Boolean(a.youthNationalTeam))
+        || Number(proposed.has(b.name.toLocaleLowerCase("it"))) - Number(proposed.has(a.name.toLocaleLowerCase("it")))
+        || futureStarRank(b) - futureStarRank(a));
     for (const player of roleCandidates.slice(0, needed)) {
       selected.add(player.name.toLocaleLowerCase("it"));
       lowCostPlayers.push(player);
     }
   }
 
-  const remaining = pool
-    .filter((player) => !isStar(player) && !selected.has(player.name.toLocaleLowerCase("it")))
-    .sort((a, b) => Number(proposedPicks.has(b.name.toLocaleLowerCase("it"))) - Number(proposedPicks.has(a.name.toLocaleLowerCase("it"))) || valueRank(b) - valueRank(a));
-  for (const player of remaining) {
-    if (starPlayers.length + lowCostPlayers.length >= STARTING_ELEVEN_SIZE) break;
-    selected.add(player.name.toLocaleLowerCase("it"));
-    lowCostPlayers.push(player);
-  }
-
-  const makePick = (player: ScoutPlayer, tier: Pick["tier"]): Pick => {
-    const proposed = proposedPicks.get(player.name.toLocaleLowerCase("it"));
-    const baseline = toPick(player, tier);
-    return proposed ? { ...baseline, reason: proposed.reason || baseline.reason, risk: proposed.risk || baseline.risk } : baseline;
-  };
-  const initialStars = starPlayers.map((player) => makePick(player, "Stella"));
-  const initialLowCost = lowCostPlayers.slice(0, STARTING_ELEVEN_SIZE - initialStars.length).map((player) => makePick(player, "Low-cost"));
-  const targetSpend = risk === "Aggressivo" ? 230 : risk === "Equilibrato" ? 215 : 200;
-  const balanced = balanceSpend([...initialStars, ...initialLowCost], Math.min(budget, targetSpend));
-  const stars = balanced.slice(0, initialStars.length);
-  const lowCost = balanced.slice(initialStars.length);
+  const leaders = leaderPlayers.map((player) => {
+    const aiPick = proposed.get(player.name.toLocaleLowerCase("it"));
+    return basePick(player, "Leader", aiPick?.reason);
+  });
+  const lowCost = lowCostPlayers.map((player) => {
+    const aiPick = proposed.get(player.name.toLocaleLowerCase("it"));
+    return basePick(player, "Low-cost", aiPick?.reason);
+  });
+  const targetSpend = risk === "Aggressivo" ? budget : risk === "Equilibrato" ? 215 : 200;
+  const balanced = rebalanceSpend(goalkeepers, leaders, lowCost, targetSpend);
 
   return {
-    title: plan?.title || "Due leader, il resto è valore",
+    title: plan?.title || "Sei leader, una rosa completa",
     formation,
     budget,
-    estimatedSpend: balanced.reduce((sum, pick) => sum + pick.maxBid, 0),
-    starsUsed: stars.length,
-    stars,
-    lowCost,
-    tacticalNote: `Undici titolari nel ${formation}: ruoli completi, due punti fermi e una struttura di valore con tetti d’asta già calibrati.`,
-    budgetRule: `Formazione completa da 11 titolari: almeno 200 crediti investiti, massimo 2 stelle e ${budget - targetSpend} crediti protetti per rilanci e correzioni.`,
+    estimatedSpend: balanced.estimatedSpend,
+    leadersUsed: balanced.leaders.length,
+    goalkeepers: balanced.goalkeepers,
+    leaders: balanced.leaders,
+    lowCost: balanced.lowCost,
+    tacticalNote: `Rosa da 25 giocatori: 3 portieri, 8 difensori, 8 centrocampisti e 6 attaccanti. Il ${formation} resta il modulo base degli undici titolari.`,
+    budgetRule: `Due leader per difesa, centrocampo e attacco. Tutti i ${balanced.lowCost.length} profili low-cost hanno un tetto massimo di 10 crediti; i segnali Under 18/19 aumentano la priorità solo quando verificabili.`,
   };
 }
 
@@ -212,8 +273,14 @@ export async function POST(request: Request) {
       timeoutMs: 80000,
       schema: planSchema,
       schemaName: "fantacalcio_auction_plan",
-      instructions: "Agisci come un Direttore Sportivo esperto di fantacalcio. Il budget della lega è fisso e non negoziabile: 250 crediti. Genera sempre una formazione titolare completa di 11 giocatori, coerente con il modulo richiesto, e investi almeno 200 crediti. Vincolo assoluto: massimo 2 stelle complessive. Tutti gli altri suggerimenti devono essere low-cost. Scegli solo giocatori presenti nei dati, rispetta il budget e valorizza giovani Under 23/25 con reali possibilità di minuti. Considera gol, assist, tiri, passaggi, dribbling, infortuni, titolarità, prezzo e potenziale. La quota può essere una stima UNDICI finché quella ufficiale non è disponibile: non confonderle. Scrivi in italiano, indica tetti disciplinati e non promettere risultati.",
-      input: { budget, formation, riskProfile: risk, hardConstraints: { startingPlayers: 11, minimumSpend: 200, maximumStars: 2, allOtherPicks: "low-cost", neverExceedBudget: true }, players: candidates.map((player) => ({ ...player, potential: potential(player), tier: isStar(player) ? "Stella" : "Low-cost" })) },
+      instructions: "Agisci come Direttore Sportivo esperto di fantacalcio. Costruisci una rosa completa da 25 giocatori: 3 portieri, 8 difensori, 8 centrocampisti e 6 attaccanti. Scegli esattamente 2 leader in difesa, 2 a centrocampo e 2 in attacco. Per i portieri inserisci obbligatoriamente titolare e vice della stessa squadra, più un terzo portiere. Gli altri 16 giocatori devono essere low-cost con tetto massimo di 10 crediti, anche da 1 credito. Premia potenziale, minuti probabili, età, rendimento, integrità fisica e segnali verificati delle nazionali Under 18/19; non inventare convocazioni giovanili mancanti. Il profilo Aggressivo deve usare tutti i 250 crediti. Scrivi in italiano e non promettere risultati.",
+      input: {
+        budget,
+        formation,
+        riskProfile: risk,
+        hardConstraints: { squadSize: 25, roles: SQUAD_REQUIREMENTS, leadersByRole: { D: 2, C: 2, A: 2 }, goalkeeperPairSameClub: true, lowCostMaximumBid: 10, aggressiveExactSpend: 250 },
+        players: candidates.map((player) => ({ ...player, potential: potential(player), futureStarScore: Math.round(futureStarRank(player)) })),
+      },
     });
     return NextResponse.json({ plan: sanitisePlan(generated, budget, formation, risk, candidates), source: generated ? "openai" : "simulazione", model: generated ? scoutModel : null, candidateCount: candidates.length });
   } catch (error) {

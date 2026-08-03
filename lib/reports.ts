@@ -69,7 +69,7 @@ export function fallbackDailyReport(date = new Date().toISOString().slice(0, 10)
       { player: "Alessandro Bastoni", role: "D", reason: "Affidabilità e costruzione a quota inferiore ai premium di reparto." },
       { player: "Riccardo Orsolini", role: "C", reason: "Bonus potenziali con un prezzo più razionale dei top." },
     ],
-    alerts: ["Non superare due stelle complessive.", "Aggiornare titolarità e infortuni prima dell’asta."],
+    alerts: ["Confermare i due leader di ogni reparto senza superare i tetti.", "Aggiornare titolarità, coppie portieri e infortuni prima dell’asta."],
     marketPulse: "Modalità anteprima: fonti live non ancora collegate.",
   };
 }
@@ -95,7 +95,7 @@ export async function generateDailyReport(date = new Date().toISOString().slice(
     timeoutMs: 80000,
     schema: reportSchema,
     schemaName: "daily_serie_a_report",
-    instructions: "Sei il Direttore Sportivo AI di un'app di fantacalcio. Produci in italiano un report prudente e operativo sui giovani della Serie A. Separa fatti, segnali e inferenze; non inventare trasferimenti, infortuni o titolarità. Dai priorità a possibili stelle Under 24 e opportunità low-cost. La strategia d'asta ammette al massimo due stelle totali, quindi non consigliare una rosa di soli campioni. Usa esclusivamente i dati forniti.",
+    instructions: "Sei il Direttore Sportivo AI di un'app di fantacalcio. Produci in italiano un report prudente e operativo sui giovani della Serie A. Separa fatti, segnali e inferenze; non inventare trasferimenti, convocazioni giovanili, infortuni o titolarità. Dai priorità a possibili stelle Under 24 e opportunità low-cost entro 10 crediti, specialmente quando esiste un segnale verificato Under 18/19. La strategia d'asta usa due leader in difesa, due a centrocampo e due in attacco, poi completa con valore e prospettiva. Usa esclusivamente i dati forniti.",
     input: { date, news: sources, youngPlayerSignals },
   });
 

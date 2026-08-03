@@ -5,8 +5,8 @@ import { useEffect, useMemo, useState } from "react";
 type Role = "P" | "D" | "C" | "A";
 type Tab = "radar" | "rosa" | "mercato" | "confronta" | "ai" | "fonti";
 
-type AiPick = { player: string; role: string; tier: "Stella" | "Low-cost"; maxBid: number; reason: string; risk: string };
-type AiPlan = { title: string; formation: string; budget: number; estimatedSpend: number; starsUsed: number; stars: AiPick[]; lowCost: AiPick[]; tacticalNote: string; budgetRule: string };
+type AiPick = { player: string; club: string; role: Role; tier: "Leader" | "Low-cost" | "Portiere"; maxBid: number; reason: string; risk: string };
+type AiPlan = { title: string; formation: string; budget: number; estimatedSpend: number; leadersUsed: number; goalkeepers: AiPick[]; leaders: AiPick[]; lowCost: AiPick[]; tacticalNote: string; budgetRule: string };
 type DailyReport = {
   date: string;
   headline: string;
@@ -637,27 +637,27 @@ export default function Home() {
       {tab === "ai" && (
         <section className="page-section ai-page">
           <div className="page-heading ai-heading">
-            <div><p className="eyebrow">DIRETTORE SPORTIVO AI</p><h1>Due stelle.<br />Una rosa vera.</h1></div>
-            <p>L’AI costruisce 11 titolari sul budget fisso di 250 crediti: almeno 200 investiti nella formazione, massimo due top, poi valore e low-cost.</p>
+            <div><p className="eyebrow">DIRETTORE SPORTIVO AI</p><h1>Sei leader.<br />Una rosa completa.</h1></div>
+            <p>L’AI costruisce tutti i 25 slot: 3 portieri, 8 difensori, 8 centrocampisti e 6 attaccanti. Due leader per reparto, low-cost entro 10 crediti e priorità ai giovani ad alta proiezione.</p>
           </div>
 
           <div className="ai-control-grid">
             <div className="ai-builder">
-              <div className="section-title"><h2>Imposta il piano d’asta</h2><span>VINCOLO 2 STELLE ATTIVO</span></div>
+              <div className="section-title"><h2>Imposta il piano d’asta</h2><span>ROSA 3 · 8 · 8 · 6</span></div>
               <div className="ai-fields">
                 <label><span>Budget lega</span><div className="number-field"><input type="number" value={aiBudget} readOnly aria-label="Budget fisso della lega: 250 crediti" /><b>fisso · crediti</b></div></label>
                 <label><span>Modulo preferito</span><select value={aiFormation} onChange={(event) => setAiFormation(event.target.value)}><option>3-4-3</option><option>3-5-2</option><option>4-3-3</option><option>4-4-2</option></select></label>
                 <label><span>Profilo di rischio</span><select value={aiRisk} onChange={(event) => setAiRisk(event.target.value)}><option>Prudente</option><option>Equilibrato</option><option>Aggressivo</option></select></label>
               </div>
-              <button className="ai-generate" onClick={buildAiPlan} disabled={aiLoading}><span>{aiLoading ? "Analisi di rosa in corso…" : "Genera la formazione bomba"}</span><b>AI →</b></button>
+              <button className="ai-generate" onClick={buildAiPlan} disabled={aiLoading}><span>{aiLoading ? "Analisi di rosa in corso…" : "Genera la rosa bomba"}</span><b>AI →</b></button>
               {aiError && <p className="ai-error">{aiError}</p>}
             </div>
             <aside className="star-rule">
-              <div className="star-counter"><strong>{aiPlan?.starsUsed ?? 0}</strong><span>/ 2</span></div>
-              <small>STELLE UTILIZZATE</small>
-              <h2>Il terzo campione<br />non si compra.</h2>
-              <p>Dopo due top il motore blocca automaticamente altri premium e cerca titolari, rigoristi potenziali e giovani sottovalutati.</p>
-              <ul><li>Massimo 2 stelle totali</li><li>Tetto d’asta per ogni nome</li><li>Budget residuo sempre visibile</li></ul>
+              <div className="star-counter"><strong>{aiPlan?.leadersUsed ?? 0}</strong><span>/ 6</span></div>
+              <small>LEADER SELEZIONATI</small>
+              <h2>Due colonne<br />per ogni reparto.</h2>
+              <p>Il motore sceglie due leader in difesa, due a centrocampo e due in attacco. Tutti gli altri slot restano sotto i 10 crediti.</p>
+              <ul><li>6 leader complessivi</li><li>Coppia portieri della stessa squadra</li><li>Aggressivo: tutti i 250 crediti</li></ul>
             </aside>
           </div>
 
@@ -665,11 +665,12 @@ export default function Home() {
             <div className="ai-result">
               <div className="result-head">
                 <div><span className={`engine-state ${aiSource}`}>{aiSource === "openai" ? "OPENAI LIVE" : "ANTEPRIMA INTELLIGENTE"}</span><h2>{aiPlan.title}</h2><p>{aiPlan.tacticalNote}</p></div>
-                <div className="budget-card"><small>SPESA FORMAZIONE · {aiPlan.stars.length + aiPlan.lowCost.length}/11 TITOLARI</small><strong>{aiPlan.estimatedSpend}</strong><span>su {aiPlan.budget} crediti</span><b>{Math.max(0, aiPlan.budget - aiPlan.estimatedSpend)} residui</b></div>
+                <div className="budget-card"><small>SPESA ROSA · {aiPlan.goalkeepers.length + aiPlan.leaders.length + aiPlan.lowCost.length}/25 GIOCATORI</small><strong>{aiPlan.estimatedSpend}</strong><span>su {aiPlan.budget} crediti</span><b>{Math.max(0, aiPlan.budget - aiPlan.estimatedSpend)} residui</b></div>
               </div>
-              <div className="squad-columns">
-                <div className="pick-group stars"><div className="pick-title"><span>★</span><div><small>I DUE LEADER</small><h3>Stelle della rosa</h3></div></div>{aiPlan.stars.map((pick) => <article className="ai-pick" key={pick.player}><span className="role-square">{pick.role}</span><div><h4>{pick.player}</h4><p>{pick.reason}</p><small>Rischio {pick.risk}</small></div><div className="max-bid"><strong>{pick.maxBid}</strong><span>tetto</span></div></article>)}</div>
-                <div className="pick-group lowcost"><div className="pick-title"><span>↘</span><div><small>L’OSSATURA · FORMAZIONE COMPLETA</small><h3>Low-cost ad alto valore</h3></div></div>{aiPlan.lowCost.map((pick) => <article className="ai-pick" key={pick.player}><span className="role-square">{pick.role}</span><div><h4>{pick.player}</h4><p>{pick.reason}</p><small>Rischio {pick.risk}</small></div><div className="max-bid"><strong>{pick.maxBid}</strong><span>tetto</span></div></article>)}</div>
+              <div className="full-squad-groups">
+                <div className="pick-group goalkeepers"><div className="pick-title"><span>P</span><div><small>PACCHETTO OBBLIGATORIO</small><h3>Tre portieri · titolare e vice abbinati</h3></div></div><div className="goalkeeper-grid">{aiPlan.goalkeepers.map((pick) => <article className="ai-pick" key={pick.player}><span className="role-square">P</span><div><h4>{pick.player}</h4><p>{pick.club} · {pick.reason}</p><small>Rischio {pick.risk}</small></div><div className="max-bid"><strong>{pick.maxBid}</strong><span>tetto</span></div></article>)}</div></div>
+                <div className="pick-group leaders"><div className="pick-title"><span>★</span><div><small>6 LEADER COMPLESSIVI</small><h3>Due per ogni reparto</h3></div></div><div className="department-grid">{(["D", "C", "A"] as Role[]).map((department) => <section key={department}><h4>{roleLabels[department]}</h4>{aiPlan.leaders.filter((pick) => pick.role === department).map((pick) => <article className="ai-pick" key={pick.player}><span className="role-square">{pick.role}</span><div><h4>{pick.player}</h4><p>{pick.club} · {pick.reason}</p><small>Rischio {pick.risk}</small></div><div className="max-bid"><strong>{pick.maxBid}</strong><span>tetto</span></div></article>)}</section>)}</div></div>
+                <div className="pick-group lowcost"><div className="pick-title"><span>↗</span><div><small>PREDIZIONE E VALORE · MASSIMO 10 CREDITI</small><h3>Low-cost con potenziale futuro</h3></div></div><div className="department-grid">{(["D", "C", "A"] as Role[]).map((department) => <section key={department}><h4>{roleLabels[department]}</h4>{aiPlan.lowCost.filter((pick) => pick.role === department).map((pick) => <article className="ai-pick" key={pick.player}><span className="role-square">{pick.role}</span><div><h4>{pick.player}</h4><p>{pick.club} · {pick.reason}</p><small>Rischio {pick.risk}</small></div><div className="max-bid"><strong>{pick.maxBid}</strong><span>max 10</span></div></article>)}</section>)}</div></div>
               </div>
               <div className="budget-rule"><b>REGOLA DEL DS</b><p>{aiPlan.budgetRule}</p><span>Modulo {aiPlan.formation}</span></div>
             </div>
@@ -700,10 +701,10 @@ export default function Home() {
             <article><div className="source-logo">AF</div><span className={`source-state ${sourceBadge("api-football", "Chiave API").className}`}>{sourceBadge("api-football", "Chiave API").label}</span><h2>API-Football</h2><p>Statistiche giocatore, tiri, passaggi, trasferimenti e infortuni quando inclusi nel piano.</p><ul><li>100 richieste/giorno nel piano free</li><li>Stagioni free soggette a limiti</li><li>Fonte primaria del motore statistico</li></ul></article>
             <article><div className="source-logo">GN</div><span className={`source-state ${sourceBadge("gnews", "Chiave API").className}`}>{sourceBadge("gnews", "Chiave API").label}</span><h2>GNews</h2><p>Notizie italiane per misurare attenzione mediatica, sentiment e rischio hype.</p><ul><li>Account gratuito disponibile</li><li>Solo titoli e metadati nel modello</li><li>Mai usata come dato prestazionale</li></ul></article>
             <article><div className="source-logo">SD</div><span className={`source-state ${sourceBadge("thesportsdb", "Pubblica").className}`}>{sourceBadge("thesportsdb", "Pubblica").label}</span><h2>TheSportsDB</h2><p>Squadre, giocatori e metadati di supporto con accesso pubblico al livello base.</p><ul><li>30 richieste/min gratuite</li><li>Chiave pubblica v1 disponibile</li><li>Fallback per anagrafiche e club</li></ul></article>
-            <article><div className="source-logo">AI</div><span className={`source-state ${sourceBadge("openai", "Chiave privata").className}`}>{sourceBadge("openai", "Chiave privata").label}</span><h2>OpenAI</h2><p>Ragiona sui segnali disponibili e costruisce il piano d’asta con massimo due stelle.</p><ul><li>gpt-5.6-sol per le scelte</li><li>gpt-5.6-luna per il report</li><li>Chiave custodita solo su Vercel</li></ul></article>
+            <article><div className="source-logo">AI</div><span className={`source-state ${sourceBadge("openai", "Chiave privata").className}`}>{sourceBadge("openai", "Chiave privata").label}</span><h2>OpenAI</h2><p>Ragiona sui segnali disponibili e costruisce la rosa completa con sei leader e low-cost predittivi.</p><ul><li>gpt-5.6-sol per le scelte</li><li>gpt-5.6-luna per il report</li><li>Chiave custodita solo su Vercel</li></ul></article>
             <article><div className="source-logo">SB</div><span className={`source-state ${sourceBadge("supabase", "Piano free").className}`}>{sourceBadge("supabase", "Piano free").label}</span><h2>Supabase</h2><p>Database Postgres esterno per conservare lo storico dei report giornalieri.</p><ul><li>Accesso soltanto lato server</li><li>Row Level Security attiva</li><li>Nessuna chiave esposta al browser</li></ul></article>
           </div>
-          <div className="method-note"><span>i</span><div><h3>Come nasce il DS Score</h3><p>Prestazione 40% · titolarità 20% · affidabilità fisica 15% · contesto squadra 15% · prezzo e hype 10%. Regola rosa: massimo 2 stelle, poi low-cost. La quota fantacalcistica ufficiale richiede una licenza del relativo editore: in questa versione è una stima interna dichiarata.</p></div></div>
+          <div className="method-note"><span>i</span><div><h3>Come nasce il DS Score</h3><p>Prestazione 40% · titolarità 20% · affidabilità fisica 15% · contesto squadra 15% · prezzo e hype 10%. Regola rosa: 6 leader, due per reparto; gli altri profili di movimento non superano 10 crediti. Età e nazionali Under 18/19 aumentano la proiezione solo quando il segnale è verificabile. La quota ufficiale richiede una licenza del relativo editore: in questa versione è una stima interna dichiarata.</p></div></div>
         </section>
       )}
 

@@ -17,6 +17,7 @@ export type ScoutPlayer = {
   starter: number;
   news: string;
   why: string;
+  youthNationalTeam?: string | null;
 };
 
 // Dataset dimostrativo condiviso dalle route server. Viene sostituito/arricchito
@@ -37,6 +38,17 @@ export const scoutPlayers: ScoutPlayer[] = [
   { id: 13, name: "Samuele Ricci", role: "C", club: "Milan", age: 24, price: 12, score: 77, goals: 1, assists: 3, shots: 0.62, passes: 49.1, dribbles: 0.8, injuries: 1, starter: 84, news: "Inserimento nelle nuove gerarchie da verificare", why: "Regia, minuti potenziali e costo sostenibile per completare il reparto." },
   { id: 14, name: "Giovanni Fabbian", role: "C", club: "Bologna", age: 23, price: 11, score: 75, goals: 4, assists: 2, shots: 1.18, passes: 21.4, dribbles: 0.7, injuries: 0, starter: 69, news: "Profilo giovane da seguire durante il precampionato", why: "Inserimenti e margine di crescita a prezzo da rotazione." },
   { id: 15, name: "Alessandro Buongiorno", role: "D", club: "Napoli", age: 27, price: 15, score: 81, goals: 1, assists: 1, shots: 0.44, passes: 46.2, dribbles: 0.3, injuries: 2, starter: 88, news: "Riferimento difensivo con costo ancora gestibile", why: "Titolarità e affidabilità per completare una difesa equilibrata." },
+  { id: 16, name: "F. Rossi", role: "P", club: "Atalanta", age: 34, price: 2, score: 55, goals: 0, assists: 0, shots: 0, passes: 18, dribbles: 0, injuries: 0, starter: 15, news: "Vice del pacchetto portieri", why: "Copertura economica del portiere titolare della stessa squadra." },
+  { id: 17, name: "M. Sportiello", role: "P", club: "Atalanta", age: 33, price: 8, score: 68, goals: 0, assists: 0, shots: 0, passes: 24, dribbles: 0, injuries: 1, starter: 74, news: "Prima scelta del pacchetto Atalanta da verificare", why: "Portiere esperto da abbinare obbligatoriamente al proprio vice." },
+  { id: 18, name: "H. Ahanor", role: "D", club: "Atalanta", age: 17, price: 4, score: 59, goals: 0, assists: 1, shots: .35, passes: 28, dribbles: .8, injuries: 0, starter: 42, news: "Prospetto molto giovane in crescita", why: "Età, struttura e margine tecnico lo rendono una scommessa da 1-4 crediti." },
+  { id: 19, name: "I. Hien", role: "D", club: "Atalanta", age: 27, price: 8, score: 74, goals: 1, assists: 1, shots: .4, passes: 41, dribbles: .2, injuries: 1, starter: 84, news: "Continuità difensiva da monitorare", why: "Minuti probabili e costo sotto controllo." },
+  { id: 20, name: "B. Djimsiti", role: "D", club: "Atalanta", age: 33, price: 6, score: 70, goals: 1, assists: 2, shots: .42, passes: 44, dribbles: .1, injuries: 1, starter: 78, news: "Esperienza a prezzo contenuto", why: "Copertura affidabile senza impegnare crediti da leader." },
+  { id: 21, name: "M. Bakker", role: "D", club: "Atalanta", age: 25, price: 7, score: 69, goals: 2, assists: 2, shots: .7, passes: 29, dribbles: .9, injuries: 2, starter: 58, news: "Gerarchie da verificare", why: "Possibile rendimento da esterno a prezzo low-cost." },
+  { id: 22, name: "M. de Roon", role: "C", club: "Atalanta", age: 35, price: 9, score: 76, goals: 4, assists: 4, shots: .78, passes: 53, dribbles: .3, injuries: 0, starter: 94, news: "Continuità e titolarità", why: "Profilo affidabile per completare il reparto entro 10 crediti." },
+  { id: 23, name: "S. Levak", role: "C", club: "Atalanta", age: 19, price: 5, score: 71, goals: 7, assists: 2, shots: 1.5, passes: 31, dribbles: 1.4, injuries: 0, starter: 52, news: "Giovane ad alta proiezione", why: "Produzione giovanile e margine di crescita: minuti da verificare prima dell’asta." },
+  { id: 24, name: "L. Bernasconi", role: "C", club: "Atalanta", age: 21, price: 3, score: 64, goals: 2, assists: 3, shots: .8, passes: 34, dribbles: 1.1, injuries: 0, starter: 48, news: "Profilo da vivaio", why: "Scommessa economica con potenziale di rivalutazione." },
+  { id: 25, name: "D. Vavassori", role: "A", club: "Atalanta", age: 20, price: 4, score: 67, goals: 8, assists: 3, shots: 1.9, passes: 18, dribbles: 1.5, injuries: 0, starter: 45, news: "Attaccante giovane da seguire", why: "Finalizzazione giovanile e costo minimo, senza garanzie immediate di titolarità." },
+  { id: 26, name: "F. Cassa", role: "A", club: "Atalanta", age: 19, price: 3, score: 65, goals: 6, assists: 2, shots: 1.6, passes: 17, dribbles: 1.3, injuries: 0, starter: 40, news: "Prospetto offensivo Under 20", why: "Costo da ultimo slot e potenziale futuro da monitorare." },
 ];
 
 export function isStar(player: ScoutPlayer) {

@@ -2,7 +2,7 @@
 
 Dashboard di scouting per il Fantacalcio Serie A 2026/27: radar d'asta,
 comparatore per ruolo, shortlist, trasferimenti, Direttore Sportivo AI e report
-giornaliero sui giovani. La strategia impone al massimo due stelle e completa
+giornaliero sui giovani. La strategia sceglie due leader per difesa, centrocampo e attacco e completa
 la rosa con profili low-cost.
 
 ## Avvio locale
