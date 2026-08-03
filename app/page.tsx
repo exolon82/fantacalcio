@@ -208,6 +208,8 @@ export default function Home() {
   const [rosterPage, setRosterPage] = useState(0);
   const [rosterOnlyShortlist, setRosterOnlyShortlist] = useState(false);
   const [selectedLiveId, setSelectedLiveId] = useState<number | null>(null);
+  const [historyLoadingId, setHistoryLoadingId] = useState<number | null>(null);
+  const [historyError, setHistoryError] = useState("");
 
   useEffect(() => {
     const saved = window.localStorage.getItem("undici-shortlist");
@@ -302,6 +304,7 @@ export default function Home() {
   const rosterPages = Math.max(1, Math.ceil(filteredRoster.length / rosterPageSize));
   const rosterPagePlayers = filteredRoster.slice(rosterPage * rosterPageSize, (rosterPage + 1) * rosterPageSize);
   const selectedLive = selectedLiveId === null ? null : livePlayers.find((player) => player.id === selectedLiveId) ?? null;
+  const selectedLiveHasHistory = Boolean(selectedLive?.statsSeason !== null && selectedLive?.statsSeason !== undefined && ((selectedLive?.appearances ?? 0) > 0 || (selectedLive?.minutes ?? 0) > 0));
   const rosterShortlistCount = livePlayers.filter((player) => shortlist.includes(`roster:${player.id}`) || radarShortlistNames.has(player.name)).length;
 
   function toggleShortlist(key: string) {
@@ -317,6 +320,25 @@ export default function Home() {
     setShortlist((current) => equivalentKeys.some((key) => current.includes(key))
       ? current.filter((key) => !equivalentKeys.includes(key))
       : [...current, `roster:${player.id}`]);
+  }
+
+  async function openLivePlayer(player: LivePlayer) {
+    setSelectedLiveId(player.id);
+    setHistoryError("");
+    const hasHistory = player.statsSeason !== null && (player.appearances > 0 || player.minutes > 0);
+    if (hasHistory || historyLoadingId === player.id) return;
+
+    setHistoryLoadingId(player.id);
+    try {
+      const response = await fetch(`/api/players/${player.id}/history`, { cache: "no-store" });
+      const data = await response.json() as { player?: LivePlayer; error?: string };
+      if (!response.ok || !data.player) throw new Error(data.error ?? "Storico del giocatore non disponibile");
+      setLivePlayers((current) => current.map((item) => item.id === data.player?.id ? data.player : item));
+    } catch (error) {
+      setHistoryError(error instanceof Error ? error.message : "Storico del giocatore non disponibile");
+    } finally {
+      setHistoryLoadingId(null);
+    }
   }
 
   function toggleCompare(id: number) {
@@ -509,7 +531,7 @@ export default function Home() {
             </div>
           </div>
           <div className="roster-grid">
-            {rosterPagePlayers.map((player) => <article className="roster-card" key={player.id} role="button" tabIndex={0} onClick={() => setSelectedLiveId(player.id)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setSelectedLiveId(player.id); } }}>
+            {rosterPagePlayers.map((player) => <article className="roster-card" key={player.id} role="button" tabIndex={0} onClick={() => openLivePlayer(player)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); openLivePlayer(player); } }}>
               <div className="roster-card-top">
                 {player.photoUrl ? <img src={player.photoUrl} alt="" loading="lazy" /> : <span className="roster-initials">{player.name.split(" ").map((part) => part[0]).slice(-2).join("")}</span>}
                 <div><span className="role-chip">{roleLabels[player.role]}</span><h2>{player.name}</h2><p>{player.team}{player.age ? ` · ${player.age} anni` : ""}</p></div>
@@ -521,7 +543,7 @@ export default function Home() {
               <div className="roster-stats"><span><small>Pres.</small><b>{player.appearances}</b></span><span><small>Gol</small><b>{player.goals}</b></span><span><small>Assist</small><b>{player.assists}</b></span><span><small>Tiri p.</small><b>{player.shotsOn}</b></span><span><small>Pass. chiave</small><b>{player.keyPasses}</b></span><span><small>Dribbling</small><b>{player.dribblesSuccess}</b></span></div>
               <div className="roster-card-foot"><span>{player.statsSeason ? `Numeri ${player.statsSeason}/${String(player.statsSeason + 1).slice(-2)}` : "Dati rosa attuale"}</span><b className={player.injured ? "risk-high" : "risk-low"}>{player.injured ? player.injuryNote ?? "Da verificare" : "Disponibile"}</b></div>
               <div className="roster-card-actions">
-                <button onClick={(event) => { event.stopPropagation(); setSelectedLiveId(player.id); }}>Apri scheda <span>→</span></button>
+                <button onClick={(event) => { event.stopPropagation(); openLivePlayer(player); }}>Apri scheda <span>→</span></button>
                 <button className={isLiveShortlisted(player) ? "saved" : ""} onClick={(event) => { event.stopPropagation(); toggleLiveShortlist(player); }} aria-label={`${isLiveShortlisted(player) ? "Rimuovi" : "Aggiungi"} ${player.name} ${isLiveShortlisted(player) ? "dalla" : "alla"} shortlist`}>{isLiveShortlisted(player) ? "★" : "☆"}</button>
               </div>
             </article>)}
@@ -542,10 +564,12 @@ export default function Home() {
                 <div><small>POTENZIALE</small><strong>{Math.round(selectedLive.potential)}</strong></div>
                 <div className="quote"><small>{selectedLive.officialQuote !== null ? "QUOTAZIONE UFFICIALE" : "STIMA UNDICI"}</small><strong>{Math.round(selectedLive.officialQuote ?? selectedLive.quoteEstimate)}</strong><span>crediti</span></div>
               </div>
+              {historyLoadingId === selectedLive.id && <div className="roster-history-message loading"><span className="live-dot" /><div><b>Recupero dello storico in corso</b><p>Sto leggendo la stagione disponibile su API-Football e la salvo nel database.</p></div></div>}
+              {historyError && historyLoadingId !== selectedLive.id && <div className="roster-history-message error"><div><b>Storico non ancora disponibile</b><p>{historyError}</p></div><button onClick={() => openLivePlayer(selectedLive)}>Riprova</button></div>}
               <div className="roster-modal-stats">
-                {[["Presenze", selectedLive.appearances], ["Da titolare", selectedLive.starts], ["Minuti", selectedLive.minutes], ["Gol", selectedLive.goals], ["Assist", selectedLive.assists], ["Tiri in porta", selectedLive.shotsOn], ["Tiri totali", selectedLive.shotsTotal], ["Passaggi", selectedLive.passesTotal], ["Passaggi chiave", selectedLive.keyPasses], ["Precisione passaggi", `${selectedLive.passAccuracy}%`], ["Dribbling riusciti", selectedLive.dribblesSuccess], ["Infortuni", selectedLive.injuries], ["Contrasti", selectedLive.tackles], ["Rating", selectedLive.rating ?? "—"]].map(([label, value]) => <div key={String(label)}><small>{label}</small><b>{value}</b></div>)}
+                {[["Presenze", selectedLive.appearances], ["Da titolare", selectedLive.starts], ["Minuti", selectedLive.minutes], ["Gol", selectedLive.goals], ["Assist", selectedLive.assists], ["Tiri in porta", selectedLive.shotsOn], ["Tiri totali", selectedLive.shotsTotal], ["Passaggi", selectedLive.passesTotal], ["Passaggi chiave", selectedLive.keyPasses], ["Precisione passaggi", `${selectedLive.passAccuracy}%`], ["Dribbling riusciti", selectedLive.dribblesSuccess], ["Infortuni", selectedLive.injuries], ["Contrasti", selectedLive.tackles], ["Rating", selectedLive.rating ?? "—"]].map(([label, value]) => <div key={String(label)}><small>{label}</small><b>{selectedLiveHasHistory || label === "Infortuni" ? value : "—"}</b></div>)}
               </div>
-              <div className="roster-modal-status"><div><small>CONDIZIONE</small><b className={selectedLive.injured ? "risk-high" : "risk-low"}>{selectedLive.injured ? selectedLive.injuryNote ?? "Infortunio da verificare" : "Disponibile"}</b></div><p>{selectedLive.statsSeason ? `Statistiche stagione ${selectedLive.statsSeason}/${String(selectedLive.statsSeason + 1).slice(-2)}.` : "Dati di rosa attuale."} Aggiornamento: {selectedLive.updatedAt ? new Date(selectedLive.updatedAt).toLocaleDateString("it-IT") : "fonte live"}.</p></div>
+              <div className="roster-modal-status"><div><small>CONDIZIONE</small><b className={selectedLive.injured ? "risk-high" : "risk-low"}>{selectedLive.injured ? selectedLive.injuryNote ?? "Infortunio da verificare" : "Disponibile"}</b></div><p>{selectedLiveHasHistory ? `Statistiche reali stagione ${selectedLive.statsSeason}/${String((selectedLive.statsSeason ?? 0) + 1).slice(-2)}${selectedLive.previousTeam ? ` · ${selectedLive.previousTeam}` : ""}${selectedLive.previousLeague ? ` · ${selectedLive.previousLeague}` : ""}.` : historyLoadingId === selectedLive.id ? "Recupero dello storico in corso." : "Dati di rosa attuale; lo storico non è ancora disponibile."} Aggiornamento: {selectedLive.updatedAt ? new Date(selectedLive.updatedAt).toLocaleDateString("it-IT") : "fonte live"}.</p></div>
               <button className={`roster-modal-save ${isLiveShortlisted(selectedLive) ? "saved" : ""}`} onClick={() => toggleLiveShortlist(selectedLive)}>{isLiveShortlisted(selectedLive) ? "★ Nella shortlist" : "☆ Aggiungi alla shortlist"}</button>
             </aside>
           </div>}
