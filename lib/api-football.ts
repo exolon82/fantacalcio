@@ -319,13 +319,14 @@ export async function syncPlayerPreviousSeason(playerId: number) {
   const base = currentRows.find((player) => player.provider_id === playerId);
   if (!base) throw new Error("Giocatore non trovato nella rosa Serie A");
 
-  if (hasStoredPerformance(base)) {
+  const statsSeason = Number(process.env.API_FOOTBALL_STATS_SEASON) || previousSeason();
+
+  if (hasStoredPerformance(base) && base.stats_season === statsSeason) {
     return { player: base, fetched: false, statsSeason: base.stats_season };
   }
 
-  // Il piano gratuito API-Football espone lo storico 2024. Chi dispone di un
-  // piano più ampio può indicare una stagione più recente da Vercel.
-  const statsSeason = Number(process.env.API_FOOTBALL_STATS_SEASON) || 2024;
+  // Se Vercel richiede una stagione più recente di quella già salvata, il
+  // profilo viene aggiornato invece di restare bloccato sulla vecchia cache.
   const result = await request<ApiPlayerStats[]>(`/players?id=${playerId}&season=${statsSeason}`);
   const item = result.response[0];
   if (!item) throw new Error(`Nessuna statistica disponibile per la stagione ${statsSeason}/${String(statsSeason + 1).slice(-2)}`);
