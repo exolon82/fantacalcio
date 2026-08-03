@@ -90,21 +90,25 @@ function clampScore(value: number) {
 }
 
 function radarPlayer(player: LivePlayer): Player {
+  const hasHistory = player.statsSeason !== null && (player.appearances >= 3 || player.minutes >= 180);
   const price = Math.round(player.officialQuote ?? player.quoteEstimate);
   const starter = player.appearances ? clampScore((player.starts / player.appearances) * 100) : 0;
-  const form = player.rating === null ? clampScore(player.score) : clampScore((player.rating - 5) * 42);
+  const performance = hasHistory ? player.score : 25;
+  const form = hasHistory ? (player.rating === null ? clampScore(player.score) : clampScore((player.rating - 5) * 42)) : 25;
   const availability = player.injured ? 25 : clampScore(100 - player.injuries * 9);
-  const value = clampScore(player.score * .72 + player.potential * .28 - price * 1.05 + 22);
-  const score = Math.round(clampScore(player.score * .42 + starter * .19 + player.potential * .17 + value * .16 + availability * .06));
+  const value = clampScore(performance * .72 + player.potential * .28 - price * 1.05 + 22);
+  const score = Math.round(clampScore(performance * .42 + starter * .19 + player.potential * .17 + value * .16 + availability * .06));
   const risk: Player["risk"] = player.injured || player.injuries >= 4 ? "Alto" : player.injuries >= 2 || starter < 55 ? "Medio" : "Basso";
-  const verdict: Player["verdict"] = score >= 72 && value >= 62 ? "Compra" : score >= 58 ? "Tratta" : "Aspetta";
+  const verdict: Player["verdict"] = !hasHistory ? "Aspetta" : score >= 72 && value >= 62 ? "Compra" : score >= 58 ? "Tratta" : "Aspetta";
   const origin = player.previousTeam && player.previousTeam !== player.team
     ? `${player.previousTeam}${player.previousLeague ? `, ${player.previousLeague}` : ""}`
     : player.previousLeague ?? "campionato precedente";
   const youthText = player.age !== null && player.age <= 23 ? " Il potenziale legato all’età aumenta il margine di crescita." : "";
-  const why = `Ranking automatico: rendimento ${Math.round(player.score)}/100, titolarità ${Math.round(starter)}% e rapporto qualità/prezzo ${Math.round(value)}/100. Dati ${player.statsSeason ?? "precedenti"} da ${origin}.${youthText}`;
-  const watch = player.injured ? player.injuryNote ?? "Condizione fisica da verificare" : player.previousTeam && player.previousTeam !== player.team ? "Adattamento alla Serie A e nuova gerarchia" : starter < 60 ? "Titolarità da consolidare" : price >= 30 ? "Non superare il tetto di spesa" : "Confermare ruolo e minuti nel precampionato";
-  const news = player.previousTeam && player.previousTeam !== player.team
+  const why = hasHistory
+    ? `Ranking automatico: rendimento ${Math.round(player.score)}/100, titolarità ${Math.round(starter)}% e rapporto qualità/prezzo ${Math.round(value)}/100. Dati ${player.statsSeason} da ${origin}.${youthText}`
+    : `Profilo reale della rosa Serie A in attesa dello storico prestazionale. Il sistema non assegna un via libera finché presenze, minuti e campionato precedente non sono verificati.${youthText}`;
+  const watch = !hasHistory ? "Sincronizzazione della stagione precedente in corso" : player.injured ? player.injuryNote ?? "Condizione fisica da verificare" : player.previousTeam && player.previousTeam !== player.team ? "Adattamento alla Serie A e nuova gerarchia" : starter < 60 ? "Titolarità da consolidare" : price >= 30 ? "Non superare il tetto di spesa" : "Confermare ruolo e minuti nel precampionato";
+  const news = !hasHistory ? "Dati reali di rosa disponibili; storico prestazionale ancora da importare" : player.previousTeam && player.previousTeam !== player.team
     ? `Nuovo in Italia: rendimento precedente con ${origin}`
     : `Classifica aggiornata sui numeri della stagione ${player.statsSeason ?? "precedente"}`;
   const trendBase = Math.max(18, score - 10);
@@ -266,7 +270,6 @@ export default function Home() {
 
   const radarPlayers = useMemo(() => {
     const ranked = livePlayers
-      .filter((player) => player.statsSeason !== null && (player.appearances >= 3 || player.minutes >= 180))
       .map(radarPlayer)
       .sort((a, b) => b.score - a.score || b.form - a.form);
     if (!ranked.length) return players;
@@ -511,7 +514,7 @@ export default function Home() {
                 <div><span className="role-chip">{roleLabels[player.role]}</span><h2>{player.name}</h2><p>{player.team}{player.age ? ` · ${player.age} anni` : ""}</p></div>
                 {player.teamLogo && <img className="team-mini-logo" src={player.teamLogo} alt="" loading="lazy" />}
               </div>
-              <div className={`performance-origin ${selected.dataOrigin === "incoming-transfer" ? "import" : "italy"}`}><b>{selected.dataOrigin === "incoming-transfer" ? "NUOVO IN SERIE A" : "STORICO PRECEDENTE"}</b><span>{selected.statsSeason ?? "Stagione precedente"} · {selected.statsTeam ?? selected.club}{selected.statsLeague ? ` · ${selected.statsLeague}` : ""}</span></div>
+              <div className={`performance-origin ${selected.dataOrigin === "incoming-transfer" ? "import" : selected.statsSeason === null ? "pending" : "italy"}`}><b>{selected.dataOrigin === "incoming-transfer" ? "NUOVO IN SERIE A" : selected.statsSeason === null ? "DATI IN SINCRONIZZAZIONE" : "STORICO PRECEDENTE"}</b><span>{selected.statsSeason ?? "Storico in attesa"} · {selected.statsTeam ?? selected.club}{selected.statsLeague ? ` · ${selected.statsLeague}` : ""}</span></div>
               <div className="roster-tags">{player.age && player.age <= 23 && <span className="young-tag">U23</span>}{player.potential >= 80 && <span className="talent-tag">ALTO POTENZIALE</span>}{player.injured && <span className="injury-tag">STOP</span>}</div>
               <div className="roster-scoreline"><div><small>DS SCORE</small><strong>{Math.round(player.score)}</strong></div><div><small>POTENZIALE</small><strong>{Math.round(player.potential)}</strong></div><div className="roster-quote"><small>{player.officialQuote !== null ? "QUOTA UFFICIALE" : "STIMA UNDICI"}</small><strong>{Math.round(player.officialQuote ?? player.quoteEstimate)}</strong><span>crediti</span></div></div>
               <div className="roster-stats"><span><small>Pres.</small><b>{player.appearances}</b></span><span><small>Gol</small><b>{player.goals}</b></span><span><small>Assist</small><b>{player.assists}</b></span><span><small>Tiri p.</small><b>{player.shotsOn}</b></span><span><small>Pass. chiave</small><b>{player.keyPasses}</b></span><span><small>Dribbling</small><b>{player.dribblesSuccess}</b></span></div>
