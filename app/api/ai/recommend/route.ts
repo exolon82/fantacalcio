@@ -198,17 +198,13 @@ function rebalanceSpend(goalkeepers: Pick[], leaders: Pick[], lowCost: Pick[], t
 
 function sanitisePlan(plan: AiPlan | null, budget: number, formation: string, risk: string, candidates: ScoutPlayer[]): AiPlan {
   const pool = [...new Map([...candidates, ...scoutPlayers].map((player) => [player.name.toLocaleLowerCase("it"), player])).values()];
-  const byName = new Map(pool.map((player) => [player.name.toLocaleLowerCase("it"), player]));
   const proposed = new Map([...(plan?.leaders ?? []), ...(plan?.lowCost ?? [])].map((pick) => [pick.player.toLocaleLowerCase("it"), pick]));
   const selected = new Set<string>();
   const goalkeepers = chooseGoalkeepers(pool, selected);
 
   const leaderPlayers: ScoutPlayer[] = [];
   for (const role of DEPARTMENT_ROLES) {
-    const proposedRole = (plan?.leaders ?? [])
-      .map((pick) => byName.get(pick.player.toLocaleLowerCase("it")))
-      .filter((player): player is ScoutPlayer => Boolean(player && player.role === role));
-    const candidatesForRole = [...proposedRole, ...pool.filter((player) => player.role === role).sort((a, b) => leaderRank(b) - leaderRank(a))];
+    const candidatesForRole = pool.filter((player) => player.role === role).sort((a, b) => leaderRank(b) - leaderRank(a));
     for (const player of candidatesForRole) {
       if (leaderPlayers.filter((item) => item.role === role).length >= LEADERS_PER_DEPARTMENT) break;
       const key = player.name.toLocaleLowerCase("it");
