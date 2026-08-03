@@ -84,6 +84,7 @@ const transfers = [
 
 const roleLabels: Record<Role, string> = { P: "Portieri", D: "Difensori", C: "Centrocampisti", A: "Attaccanti" };
 const verdictLabels = { Compra: "Via libera", Tratta: "Tratta", Aspetta: "Aspetta" };
+const LEAGUE_BUDGET = 250;
 
 function clampScore(value: number) {
   return Math.min(100, Math.max(0, value));
@@ -181,7 +182,7 @@ export default function Home() {
   const [syncing, setSyncing] = useState(false);
   const [syncMessage, setSyncMessage] = useState("Pronto per la sincronizzazione");
   const [sourceProviders, setSourceProviders] = useState<SourceProvider[]>([]);
-  const [aiBudget, setAiBudget] = useState(500);
+  const [aiBudget] = useState(LEAGUE_BUDGET);
   const [aiFormation, setAiFormation] = useState("3-4-3");
   const [aiRisk, setAiRisk] = useState("Equilibrato");
   const [aiPlan, setAiPlan] = useState<AiPlan | null>(null);
@@ -385,7 +386,7 @@ export default function Home() {
 
   return (
     <main>
-      <div className="data-banner">SCENARIO PRE-ASTA 2026/27 <span>•</span> Ranking live, quotazioni UNDICI non ufficiali</div>
+      <div className="data-banner">SCENARIO PRE-ASTA 2026/27 <span>•</span> Budget lega 250 crediti <span>•</span> Ranking live, quotazioni UNDICI non ufficiali</div>
       <header className="topbar">
         <button className="brand" onClick={() => setTab("radar")} aria-label="Vai alla home">
           <span className="brand-mark">U</span>
@@ -613,14 +614,14 @@ export default function Home() {
         <section className="page-section ai-page">
           <div className="page-heading ai-heading">
             <div><p className="eyebrow">DIRETTORE SPORTIVO AI</p><h1>Due stelle.<br />Una rosa vera.</h1></div>
-            <p>L’AI incrocia numeri, prezzo, titolarità, infortuni e notizie. Vincolo non negoziabile: massimo due top, poi solo valore e low-cost.</p>
+            <p>L’AI incrocia numeri, prezzo, titolarità, infortuni e notizie sul budget fisso della lega: 250 crediti. Vincolo non negoziabile: massimo due top, poi solo valore e low-cost.</p>
           </div>
 
           <div className="ai-control-grid">
             <div className="ai-builder">
               <div className="section-title"><h2>Imposta il piano d’asta</h2><span>VINCOLO 2 STELLE ATTIVO</span></div>
               <div className="ai-fields">
-                <label><span>Budget totale</span><div className="number-field"><input type="number" min="100" max="1000" value={aiBudget} onChange={(event) => setAiBudget(Number(event.target.value))} /><b>crediti</b></div></label>
+                <label><span>Budget lega</span><div className="number-field"><input type="number" value={aiBudget} readOnly aria-label="Budget fisso della lega: 250 crediti" /><b>fisso · crediti</b></div></label>
                 <label><span>Modulo preferito</span><select value={aiFormation} onChange={(event) => setAiFormation(event.target.value)}><option>3-4-3</option><option>3-5-2</option><option>4-3-3</option><option>4-4-2</option></select></label>
                 <label><span>Profilo di rischio</span><select value={aiRisk} onChange={(event) => setAiRisk(event.target.value)}><option>Prudente</option><option>Equilibrato</option><option>Aggressivo</option></select></label>
               </div>

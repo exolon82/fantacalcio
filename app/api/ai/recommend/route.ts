@@ -19,6 +19,9 @@ type AiPlan = {
   budgetRule: string;
 };
 
+const LEAGUE_BUDGET = 250;
+const ORIGINAL_PRICE_REFERENCE_BUDGET = 500;
+
 const pickProperties = {
   player: { type: "string" }, role: { type: "string", enum: ["P", "D", "C", "A"] }, tier: { type: "string", enum: ["Stella", "Low-cost"] }, maxBid: { type: "integer", minimum: 1 }, reason: { type: "string" }, risk: { type: "string" },
 };
@@ -97,7 +100,7 @@ function toPick(player: ScoutPlayer, tier: Pick["tier"], budgetFactor = 1): Pick
 }
 
 function fallbackPlan(budget: number, formation: string, candidates: ScoutPlayer[]): AiPlan {
-  const factor = budget / 500;
+  const factor = budget / ORIGINAL_PRICE_REFERENCE_BUDGET;
   const stars = candidates.filter(isStar).sort((a, b) => b.score - a.score).slice(0, 2).map((player) => toPick(player, "Stella", factor));
   const chosenStars = new Set(stars.map((pick) => pick.player));
   const lowCost = candidates
@@ -144,7 +147,7 @@ function sanitisePlan(plan: AiPlan | null, budget: number, formation: string, ca
 export async function POST(request: Request) {
   try {
     const body = await request.json() as { budget?: number; formation?: string; risk?: string };
-    const budget = Math.min(1000, Math.max(100, Math.round(Number(body.budget) || 500)));
+    const budget = LEAGUE_BUDGET;
     const formation = ["3-4-3", "3-5-2", "4-3-3", "4-4-2"].includes(body.formation ?? "") ? body.formation! : "3-4-3";
     const risk = ["Prudente", "Equilibrato", "Aggressivo"].includes(body.risk ?? "") ? body.risk! : "Equilibrato";
     const candidates = await loadCandidates();
@@ -156,7 +159,7 @@ export async function POST(request: Request) {
       timeoutMs: 80000,
       schema: planSchema,
       schemaName: "fantacalcio_auction_plan",
-      instructions: "Agisci come un Direttore Sportivo esperto di fantacalcio. Ottimizza il valore, non collezionare nomi famosi. Vincolo assoluto: massimo 2 stelle complessive. Tutti gli altri suggerimenti devono essere low-cost. Scegli solo giocatori presenti nei dati, rispetta il budget, diversifica i ruoli e valorizza giovani Under 23/25 con reali possibilità di minuti. Considera gol, assist, tiri, passaggi, dribbling, infortuni, titolarità, prezzo e potenziale. La quota può essere una stima UNDICI finché quella ufficiale non è disponibile: non confonderle. Scrivi in italiano, indica tetti disciplinati e non promettere risultati.",
+      instructions: "Agisci come un Direttore Sportivo esperto di fantacalcio. Il budget della lega è fisso e non negoziabile: 250 crediti. Ottimizza il valore, non collezionare nomi famosi. Vincolo assoluto: massimo 2 stelle complessive. Tutti gli altri suggerimenti devono essere low-cost. Scegli solo giocatori presenti nei dati, rispetta il budget, diversifica i ruoli e valorizza giovani Under 23/25 con reali possibilità di minuti. Considera gol, assist, tiri, passaggi, dribbling, infortuni, titolarità, prezzo e potenziale. La quota può essere una stima UNDICI finché quella ufficiale non è disponibile: non confonderle. Scrivi in italiano, indica tetti disciplinati e non promettere risultati.",
       input: { budget, formation, riskProfile: risk, hardConstraints: { maximumStars: 2, allOtherPicks: "low-cost", neverExceedBudget: true }, players: candidates.map((player) => ({ ...player, potential: potential(player), tier: isStar(player) ? "Stella" : "Low-cost" })) },
     });
     return NextResponse.json({ plan: sanitisePlan(generated, budget, formation, candidates), source: generated ? "openai" : "simulazione", model: generated ? scoutModel : null, candidateCount: candidates.length });
