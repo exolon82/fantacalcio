@@ -87,8 +87,10 @@ export async function generateDailyReport(date = new Date().toISOString().slice(
       .map((player) => ({ name: player.name, age: player.age, club: player.team_name, role: player.role, potential: player.potential_score, score: player.ds_score, quote: player.official_quote ?? player.quote_estimate, quoteType: player.official_quote ? "ufficiale" : "stima UNDICI", appearances: player.appearances, minutes: player.minutes, goals: player.goals, assists: player.assists, injured: player.current_injured }));
   } catch { /* Il report conserva i segnali dimostrativi se il database non è pronto. */ }
 
+  const configuredModel = process.env.OPENAI_REPORT_MODEL?.trim();
+  const reportModel = configuredModel?.startsWith("gpt-") ? configuredModel : "gpt-5.6-luna";
   const generated = await askScoutAI<DailyReport>({
-    model: process.env.OPENAI_REPORT_MODEL ?? "gpt-5.6-luna",
+    model: reportModel,
     reasoningEffort: "low",
     timeoutMs: 80000,
     schema: reportSchema,

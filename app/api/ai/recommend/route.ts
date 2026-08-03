@@ -148,8 +148,10 @@ export async function POST(request: Request) {
     const formation = ["3-4-3", "3-5-2", "4-3-3", "4-4-2"].includes(body.formation ?? "") ? body.formation! : "3-4-3";
     const risk = ["Prudente", "Equilibrato", "Aggressivo"].includes(body.risk ?? "") ? body.risk! : "Equilibrato";
     const candidates = await loadCandidates();
+    const configuredModel = process.env.OPENAI_SCOUT_MODEL?.trim();
+    const scoutModel = configuredModel?.startsWith("gpt-") ? configuredModel : "gpt-5.6-sol";
     const generated = await askScoutAI<AiPlan>({
-      model: process.env.OPENAI_SCOUT_MODEL ?? "gpt-5.6-sol",
+      model: scoutModel,
       reasoningEffort: "low",
       timeoutMs: 80000,
       schema: planSchema,
@@ -157,7 +159,7 @@ export async function POST(request: Request) {
       instructions: "Agisci come un Direttore Sportivo esperto di fantacalcio. Ottimizza il valore, non collezionare nomi famosi. Vincolo assoluto: massimo 2 stelle complessive. Tutti gli altri suggerimenti devono essere low-cost. Scegli solo giocatori presenti nei dati, rispetta il budget, diversifica i ruoli e valorizza giovani Under 23/25 con reali possibilità di minuti. Considera gol, assist, tiri, passaggi, dribbling, infortuni, titolarità, prezzo e potenziale. La quota può essere una stima UNDICI finché quella ufficiale non è disponibile: non confonderle. Scrivi in italiano, indica tetti disciplinati e non promettere risultati.",
       input: { budget, formation, riskProfile: risk, hardConstraints: { maximumStars: 2, allOtherPicks: "low-cost", neverExceedBudget: true }, players: candidates.map((player) => ({ ...player, potential: potential(player), tier: isStar(player) ? "Stella" : "Low-cost" })) },
     });
-    return NextResponse.json({ plan: sanitisePlan(generated, budget, formation, candidates), source: generated ? "openai" : "simulazione", model: generated ? (process.env.OPENAI_SCOUT_MODEL ?? "gpt-5.6-sol") : null, candidateCount: candidates.length });
+    return NextResponse.json({ plan: sanitisePlan(generated, budget, formation, candidates), source: generated ? "openai" : "simulazione", model: generated ? scoutModel : null, candidateCount: candidates.length });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Errore AI" }, { status: 500 });
   }
