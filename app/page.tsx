@@ -205,6 +205,9 @@ export default function Home() {
   const [rosterAge, setRosterAge] = useState<"Tutti" | "U21" | "U23" | "U25">("Tutti");
   const [rosterTeam, setRosterTeam] = useState("Tutte");
   const [rosterSort, setRosterSort] = useState<"score" | "potential" | "value">("score");
+  const [rosterMinGoals, setRosterMinGoals] = useState(0);
+  const [rosterMinAssists, setRosterMinAssists] = useState(0);
+  const [rosterMinDribbles, setRosterMinDribbles] = useState(0);
   const [rosterPage, setRosterPage] = useState(0);
   const [rosterOnlyShortlist, setRosterOnlyShortlist] = useState(false);
   const [selectedLiveId, setSelectedLiveId] = useState<number | null>(null);
@@ -298,14 +301,25 @@ export default function Home() {
     .filter((player) => rosterRole === "Tutti" || player.role === rosterRole)
     .filter((player) => rosterTeam === "Tutte" || player.team === rosterTeam)
     .filter((player) => rosterAge === "Tutti" || (player.age !== null && player.age <= Number(rosterAge.slice(1))))
+    .filter((player) => player.goals >= rosterMinGoals)
+    .filter((player) => player.assists >= rosterMinAssists)
+    .filter((player) => player.dribblesSuccess >= rosterMinDribbles)
     .filter((player) => `${player.name} ${player.team}`.toLocaleLowerCase("it").includes(rosterQuery.toLocaleLowerCase("it")))
-    .sort((a, b) => rosterSort === "potential" ? b.potential - a.potential : rosterSort === "value" ? (b.score + b.potential - b.quoteEstimate * 2) - (a.score + a.potential - a.quoteEstimate * 2) : b.score - a.score), [livePlayers, rosterRole, rosterTeam, rosterAge, rosterQuery, rosterSort, rosterOnlyShortlist, shortlist, radarShortlistNames]);
+    .sort((a, b) => rosterSort === "potential" ? b.potential - a.potential : rosterSort === "value" ? (b.score + b.potential - b.quoteEstimate * 2) - (a.score + a.potential - a.quoteEstimate * 2) : b.score - a.score), [livePlayers, rosterRole, rosterTeam, rosterAge, rosterMinGoals, rosterMinAssists, rosterMinDribbles, rosterQuery, rosterSort, rosterOnlyShortlist, shortlist, radarShortlistNames]);
   const rosterPageSize = 36;
   const rosterPages = Math.max(1, Math.ceil(filteredRoster.length / rosterPageSize));
   const rosterPagePlayers = filteredRoster.slice(rosterPage * rosterPageSize, (rosterPage + 1) * rosterPageSize);
   const selectedLive = selectedLiveId === null ? null : livePlayers.find((player) => player.id === selectedLiveId) ?? null;
   const selectedLiveHasHistory = Boolean(selectedLive?.statsSeason !== null && selectedLive?.statsSeason !== undefined && ((selectedLive?.appearances ?? 0) > 0 || (selectedLive?.minutes ?? 0) > 0));
   const rosterShortlistCount = livePlayers.filter((player) => shortlist.includes(`roster:${player.id}`) || radarShortlistNames.has(player.name)).length;
+  const activeRosterStatFilters = [rosterMinGoals, rosterMinAssists, rosterMinDribbles].filter((value) => value > 0).length;
+
+  function clearRosterStatFilters() {
+    setRosterMinGoals(0);
+    setRosterMinAssists(0);
+    setRosterMinDribbles(0);
+    setRosterPage(0);
+  }
 
   function toggleShortlist(key: string) {
     setShortlist(current => current.includes(key) ? current.filter(item => item !== key) : [...current, key]);
@@ -415,12 +429,12 @@ export default function Home() {
           <span><b>UNDICI</b><small>Scouting room</small></span>
         </button>
         <nav aria-label="Navigazione principale">
-          <button className={tab === "radar" ? "active" : ""} onClick={() => setTab("radar")}>Radar asta</button>
-          <button className={tab === "rosa" ? "active" : ""} onClick={() => setTab("rosa")}>Serie A</button>
-          <button className={tab === "mercato" ? "active" : ""} onClick={() => setTab("mercato")}>Trasferimenti</button>
-          <button className={tab === "confronta" ? "active" : ""} onClick={() => setTab("confronta")}>Confronta <span className="nav-count">{compare.length}</span></button>
-          <button className={tab === "ai" ? "active" : ""} onClick={() => setTab("ai")}>DS AI <span className="ai-nav-dot" /></button>
-          <button className={tab === "fonti" ? "active" : ""} onClick={() => setTab("fonti")}>Fonti</button>
+          <button data-mobile-label="Radar" className={tab === "radar" ? "active" : ""} onClick={() => setTab("radar")}><span className="nav-icon" aria-hidden="true">◎</span><span className="nav-text">Radar asta</span></button>
+          <button data-mobile-label="Serie A" className={tab === "rosa" ? "active" : ""} onClick={() => setTab("rosa")}><span className="nav-icon" aria-hidden="true">●</span><span className="nav-text">Serie A</span></button>
+          <button data-mobile-label="Mercato" className={tab === "mercato" ? "active" : ""} onClick={() => setTab("mercato")}><span className="nav-icon" aria-hidden="true">↗</span><span className="nav-text">Trasferimenti</span></button>
+          <button data-mobile-label="Confronta" className={tab === "confronta" ? "active" : ""} onClick={() => setTab("confronta")}><span className="nav-icon" aria-hidden="true">⇄</span><span className="nav-text">Confronta</span> <span className="nav-count">{compare.length}</span></button>
+          <button data-mobile-label="DS AI" className={tab === "ai" ? "active" : ""} onClick={() => setTab("ai")}><span className="nav-icon" aria-hidden="true">✦</span><span className="nav-text">DS AI</span> <span className="ai-nav-dot" /></button>
+          <button data-mobile-label="Fonti" className={tab === "fonti" ? "active" : ""} onClick={() => setTab("fonti")}><span className="nav-icon" aria-hidden="true">✓</span><span className="nav-text">Fonti</span></button>
         </nav>
         <div className="header-actions">
           <button className="shortlist-button" onClick={() => { setRosterOnlyShortlist(true); setRosterPage(0); setTab("rosa"); }}><span>☆</span> Shortlist <b>{shortlist.length}</b></button>
@@ -519,6 +533,12 @@ export default function Home() {
             <select value={rosterTeam} onChange={(event) => { setRosterTeam(event.target.value); setRosterPage(0); }} aria-label="Filtra per squadra"><option>Tutte</option>{rosterTeams.map((team) => <option key={team}>{team}</option>)}</select>
             <select value={rosterAge} onChange={(event) => { setRosterAge(event.target.value as typeof rosterAge); setRosterPage(0); }} aria-label="Filtra per età"><option>Tutti</option><option>U21</option><option>U23</option><option>U25</option></select>
             <select value={rosterSort} onChange={(event) => { setRosterSort(event.target.value as typeof rosterSort); setRosterPage(0); }} aria-label="Ordina giocatori"><option value="score">DS score</option><option value="potential">Potenziale giovani</option><option value="value">Qualità / prezzo</option></select>
+            <div className="roster-stat-filters" aria-label="Filtri statistiche stagione precedente">
+              <label><span>Gol</span><select aria-label="Gol minimi" value={rosterMinGoals} onChange={(event) => { setRosterMinGoals(Number(event.target.value)); setRosterPage(0); }}><option value="0">Qualsiasi</option><option value="1">Almeno 1</option><option value="3">Almeno 3</option><option value="5">Almeno 5</option><option value="10">Almeno 10</option></select></label>
+              <label><span>Assist</span><select aria-label="Assist minimi" value={rosterMinAssists} onChange={(event) => { setRosterMinAssists(Number(event.target.value)); setRosterPage(0); }}><option value="0">Qualsiasi</option><option value="1">Almeno 1</option><option value="3">Almeno 3</option><option value="5">Almeno 5</option><option value="10">Almeno 10</option></select></label>
+              <label><span>Dribbling riusciti</span><select aria-label="Dribbling riusciti minimi" value={rosterMinDribbles} onChange={(event) => { setRosterMinDribbles(Number(event.target.value)); setRosterPage(0); }}><option value="0">Qualsiasi</option><option value="5">Almeno 5</option><option value="10">Almeno 10</option><option value="20">Almeno 20</option><option value="40">Almeno 40</option></select></label>
+              <button type="button" onClick={clearRosterStatFilters} disabled={activeRosterStatFilters === 0}>Azzera{activeRosterStatFilters > 0 ? ` (${activeRosterStatFilters})` : ""}</button>
+            </div>
           </div>
           <div className="roster-role-filters">
             {(["Tutti", "P", "D", "C", "A"] as const).map((item) => <button key={item} className={rosterRole === item ? "active" : ""} onClick={() => { setRosterRole(item); setRosterPage(0); }}>{item === "Tutti" ? "Tutti i ruoli" : roleLabels[item]}<span>{item === "Tutti" ? livePlayers.length : livePlayers.filter((player) => player.role === item).length}</span></button>)}
@@ -537,7 +557,7 @@ export default function Home() {
                 <div><span className="role-chip">{roleLabels[player.role]}</span><h2>{player.name}</h2><p>{player.team}{player.age ? ` · ${player.age} anni` : ""}</p></div>
                 {player.teamLogo && <img className="team-mini-logo" src={player.teamLogo} alt="" loading="lazy" />}
               </div>
-              <div className={`performance-origin ${selected.dataOrigin === "incoming-transfer" ? "import" : selected.statsSeason === null ? "pending" : "italy"}`}><b>{selected.dataOrigin === "incoming-transfer" ? "NUOVO IN SERIE A" : selected.statsSeason === null ? "DATI IN SINCRONIZZAZIONE" : "STORICO PRECEDENTE"}</b><span>{selected.statsSeason ?? "Storico in attesa"} · {selected.statsTeam ?? selected.club}{selected.statsLeague ? ` · ${selected.statsLeague}` : ""}</span></div>
+              <div className={`performance-origin ${player.performanceOrigin === "incoming-transfer" ? "import" : player.statsSeason === null ? "pending" : "italy"}`}><b>{player.performanceOrigin === "incoming-transfer" ? "NUOVO IN SERIE A" : player.statsSeason === null ? "DATI IN SINCRONIZZAZIONE" : "STORICO PRECEDENTE"}</b><span>{player.statsSeason ?? "Storico in attesa"} · {player.previousTeam ?? player.team}{player.previousLeague ? ` · ${player.previousLeague}` : ""}</span></div>
               <div className="roster-tags">{player.age && player.age <= 23 && <span className="young-tag">U23</span>}{player.potential >= 80 && <span className="talent-tag">ALTO POTENZIALE</span>}{player.injured && <span className="injury-tag">STOP</span>}</div>
               <div className="roster-scoreline"><div><small>DS SCORE</small><strong>{Math.round(player.score)}</strong></div><div><small>POTENZIALE</small><strong>{Math.round(player.potential)}</strong></div><div className="roster-quote"><small>{player.officialQuote !== null ? "QUOTA UFFICIALE" : "STIMA UNDICI"}</small><strong>{Math.round(player.officialQuote ?? player.quoteEstimate)}</strong><span>crediti</span></div></div>
               <div className="roster-stats"><span><small>Pres.</small><b>{player.appearances}</b></span><span><small>Gol</small><b>{player.goals}</b></span><span><small>Assist</small><b>{player.assists}</b></span><span><small>Tiri p.</small><b>{player.shotsOn}</b></span><span><small>Pass. chiave</small><b>{player.keyPasses}</b></span><span><small>Dribbling</small><b>{player.dribblesSuccess}</b></span></div>
