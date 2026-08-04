@@ -551,22 +551,24 @@ export default function Home() {
             </div>
           </div>
           <div className="roster-grid">
-            {rosterPagePlayers.map((player) => <article className="roster-card" key={player.id} role="button" tabIndex={0} onClick={() => openLivePlayer(player)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); openLivePlayer(player); } }}>
+            {rosterPagePlayers.map((player) => {
+              const playerHasHistory = player.statsSeason !== null && (player.appearances > 0 || player.minutes > 0);
+              return <article className="roster-card" key={player.id} role="button" tabIndex={0} onClick={() => openLivePlayer(player)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); openLivePlayer(player); } }}>
               <div className="roster-card-top">
                 {player.photoUrl ? <img src={player.photoUrl} alt="" loading="lazy" /> : <span className="roster-initials">{player.name.split(" ").map((part) => part[0]).slice(-2).join("")}</span>}
                 <div><span className="role-chip">{roleLabels[player.role]}</span><h2>{player.name}</h2><p>{player.team}{player.age ? ` · ${player.age} anni` : ""}</p></div>
                 {player.teamLogo && <img className="team-mini-logo" src={player.teamLogo} alt="" loading="lazy" />}
               </div>
-              <div className={`performance-origin ${player.performanceOrigin === "incoming-transfer" ? "import" : player.statsSeason === null ? "pending" : "italy"}`}><b>{player.performanceOrigin === "incoming-transfer" ? "NUOVO IN SERIE A" : player.statsSeason === null ? "DATI IN SINCRONIZZAZIONE" : "STORICO PRECEDENTE"}</b><span>{player.statsSeason ?? "Storico in attesa"} · {player.previousTeam ?? player.team}{player.previousLeague ? ` · ${player.previousLeague}` : ""}</span></div>
+              <div className={`performance-origin ${playerHasHistory && player.performanceOrigin === "incoming-transfer" ? "import" : !playerHasHistory ? "pending" : "italy"}`}><b>{playerHasHistory && player.performanceOrigin === "incoming-transfer" ? "NUOVO IN SERIE A" : !playerHasHistory ? "DATI IN SINCRONIZZAZIONE" : "STORICO PRECEDENTE"}</b><span>{playerHasHistory ? `${player.statsSeason} · ${player.previousTeam ?? player.team}${player.previousLeague ? ` · ${player.previousLeague}` : ""}` : `Storico in attesa · ${player.team}`}</span></div>
               <div className="roster-tags">{player.age && player.age <= 23 && <span className="young-tag">U23</span>}{player.potential >= 80 && <span className="talent-tag">ALTO POTENZIALE</span>}{player.injured && <span className="injury-tag">STOP</span>}</div>
               <div className="roster-scoreline"><div><small>DS SCORE</small><strong>{Math.round(player.score)}</strong></div><div><small>POTENZIALE</small><strong>{Math.round(player.potential)}</strong></div><div className="roster-quote"><small>{player.officialQuote !== null ? "QUOTA UFFICIALE" : "STIMA UNDICI"}</small><strong>{Math.round(player.officialQuote ?? player.quoteEstimate)}</strong><span>crediti</span></div></div>
               <div className="roster-stats"><span><small>Pres.</small><b>{player.appearances}</b></span><span><small>Gol</small><b>{player.goals}</b></span><span><small>Assist</small><b>{player.assists}</b></span><span><small>Tiri p.</small><b>{player.shotsOn}</b></span><span><small>Pass. chiave</small><b>{player.keyPasses}</b></span><span><small>Dribbling</small><b>{player.dribblesSuccess}</b></span></div>
-              <div className="roster-card-foot"><span>{player.statsSeason ? `Numeri ${player.statsSeason}/${String(player.statsSeason + 1).slice(-2)}` : "Dati rosa attuale"}</span><b className={player.injured ? "risk-high" : "risk-low"}>{player.injured ? player.injuryNote ?? "Da verificare" : "Disponibile"}</b></div>
+              <div className="roster-card-foot"><span>{playerHasHistory && player.statsSeason ? `Numeri ${player.statsSeason}/${String(player.statsSeason + 1).slice(-2)}` : "Dati rosa attuale"}</span><b className={player.injured ? "risk-high" : "risk-low"}>{player.injured ? player.injuryNote ?? "Da verificare" : "Disponibile"}</b></div>
               <div className="roster-card-actions">
                 <button onClick={(event) => { event.stopPropagation(); openLivePlayer(player); }}>Apri scheda <span>→</span></button>
                 <button className={isLiveShortlisted(player) ? "saved" : ""} onClick={(event) => { event.stopPropagation(); toggleLiveShortlist(player); }} aria-label={`${isLiveShortlisted(player) ? "Rimuovi" : "Aggiungi"} ${player.name} ${isLiveShortlisted(player) ? "dalla" : "alla"} shortlist`}>{isLiveShortlisted(player) ? "★" : "☆"}</button>
               </div>
-            </article>)}
+            </article>;})}
             {!rosterLoading && rosterPagePlayers.length === 0 && <div className="roster-empty">{rosterOnlyShortlist ? "La shortlist Serie A è vuota. Disattiva il filtro o salva un giocatore con la stella." : "Nessun giocatore corrisponde ai filtri scelti."}</div>}
           </div>
           {filteredRoster.length > rosterPageSize && <div className="roster-pagination"><button disabled={rosterPage === 0} onClick={() => setRosterPage((page) => Math.max(0, page - 1))}>← Precedenti</button><span>Pagina {rosterPage + 1} di {rosterPages}</span><button disabled={rosterPage + 1 >= rosterPages} onClick={() => setRosterPage((page) => Math.min(rosterPages - 1, page + 1))}>Successivi →</button></div>}

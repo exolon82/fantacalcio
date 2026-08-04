@@ -156,6 +156,8 @@ export function calculatePlayerScores(player: Partial<SerieAPlayerRecord>) {
 
 export function toClientPlayer(row: SerieAPlayerRecord): SerieAPlayer {
   const context = performanceContext(row.raw);
+  const hasVerifiedHistory = row.stats_season !== null && row.stats_season !== undefined
+    && ((row.appearances ?? 0) > 0 || (row.minutes ?? 0) > 0);
   return {
     id: row.provider_id,
     name: row.name,
@@ -193,10 +195,10 @@ export function toClientPlayer(row: SerieAPlayerRecord): SerieAPlayer {
     officialRole: row.official_role ?? null,
     score: row.ds_score,
     potential: row.potential_score,
-    previousTeam: context.team ?? null,
-    previousLeague: context.league ?? null,
-    previousCountry: context.country ?? null,
-    performanceOrigin: context.origin ?? null,
+    previousTeam: hasVerifiedHistory ? context.team ?? null : null,
+    previousLeague: hasVerifiedHistory ? context.league ?? null : null,
+    previousCountry: hasVerifiedHistory ? context.country ?? null : null,
+    performanceOrigin: hasVerifiedHistory ? context.origin ?? null : null,
     updatedAt: row.updated_at ?? null,
   };
 }

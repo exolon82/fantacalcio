@@ -124,6 +124,8 @@ async function resolveCurrentSerieATeams() {
 
 function keepExisting(base: SerieAPlayerRecord, existing?: SerieAPlayerRecord): SerieAPlayerRecord {
   if (!existing) return base;
+  const hasStoredContext = existing.stats_season !== null && existing.stats_season !== undefined
+    && ((existing.appearances ?? 0) > 0 || (existing.minutes ?? 0) > 0);
   return {
     ...existing,
     ...base,
@@ -145,6 +147,9 @@ function keepExisting(base: SerieAPlayerRecord, existing?: SerieAPlayerRecord): 
     official_quote: existing.official_quote ?? null,
     official_fvm: existing.official_fvm ?? null,
     official_role: existing.official_role ?? null,
+    // La sincronizzazione quotidiana delle rose non deve cancellare la fonte
+    // della prestazione già verificata con il semplice record anagrafico.
+    raw: hasStoredContext ? existing.raw : base.raw,
   };
 }
 
