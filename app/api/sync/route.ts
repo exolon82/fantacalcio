@@ -21,13 +21,14 @@ export async function GET() {
   const supabaseUrl = process.env.SUPABASE_URL ?? process.env.NEXT_PUBLIC_SUPABASE_URL;
   const supabaseKey = process.env.SUPABASE_SECRET_KEY ?? process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-  const [sportsDb, apiFootball, footballData, gnews, openAI, supabase] = await Promise.all([
+  const [sportsDb, apiFootball, footballData, gnews, openAI, supabase, listone] = await Promise.all([
     check("https://www.thesportsdb.com/api/v1/json/123/searchteams.php?t=Inter"),
     apiFootballKey ? check("https://v3.football.api-sports.io/status", { headers: { "x-apisports-key": apiFootballKey } }) : false,
     footballDataKey ? check("https://api.football-data.org/v4/competitions/SA", { headers: { "X-Auth-Token": footballDataKey } }) : false,
     gnewsKey ? check(`https://gnews.io/api/v4/search?q=serie%20a%20calciomercato&lang=it&max=1&apikey=${encodeURIComponent(gnewsKey)}`) : false,
     openAIKey ? check(`https://api.openai.com/v1/models/${encodeURIComponent(openAIModel)}`, { headers: { Authorization: `Bearer ${openAIKey}` } }) : false,
     supabaseUrl && supabaseKey ? check(`${supabaseUrl.replace(/\/$/, "")}/rest/v1/daily_reports?select=report_date&limit=1`, { headers: { apikey: supabaseKey, Authorization: `Bearer ${supabaseKey}` } }) : false,
+    check("https://www.fantacalcio.it/quotazioni-fantacalcio"),
   ]);
 
   return NextResponse.json({
@@ -39,6 +40,7 @@ export async function GET() {
       { id: "thesportsdb", label: "TheSportsDB", live: sportsDb, configured: true },
       { id: "openai", label: "OpenAI", live: openAI, configured: Boolean(openAIKey) },
       { id: "supabase", label: "Supabase", live: supabase, configured: Boolean(supabaseUrl && supabaseKey) },
+      { id: "listone", label: "Listone Fantacalcio", live: listone, configured: true },
     ],
   });
 }

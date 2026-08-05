@@ -68,7 +68,7 @@ async function loadCandidates(): Promise<ScoutPlayer[]> {
       return {
         id: row.provider_id,
         name: row.name,
-        role: row.role,
+        role: (["P", "D", "C", "A"].includes(row.official_role ?? "") ? row.official_role : row.role) as ScoutRole,
         club: row.team_name,
         age: row.age ?? 28,
         price,

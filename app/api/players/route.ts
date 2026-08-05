@@ -57,7 +57,8 @@ export async function GET() {
     if (!rows.length) return NextResponse.json({ players: demoPlayers(), source: "demo", total: 12, syncedAt: null, message: "La prima sincronizzazione della rosa completa è in attesa." });
     const players = rows.map(toClientPlayer);
     const syncedAt = players.map((player) => player.updatedAt).filter(Boolean).sort().at(-1) ?? null;
-    return NextResponse.json({ players, source: "api-football", total: players.length, syncedAt });
+    const officialQuotes = players.filter((player) => player.officialQuote !== null).length;
+    return NextResponse.json({ players, source: "api-football", total: players.length, officialQuotes, syncedAt });
   } catch (error) {
     return NextResponse.json({ players: demoPlayers(), source: "demo", total: 12, syncedAt: null, message: error instanceof Error ? error.message : "Database giocatori non disponibile" });
   }

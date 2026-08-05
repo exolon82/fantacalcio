@@ -180,6 +180,7 @@ export default function Home() {
   const [shortlist, setShortlist] = useState<string[]>([]);
   const [compare, setCompare] = useState<number[]>([]);
   const [syncing, setSyncing] = useState(false);
+  const [quoteSyncing, setQuoteSyncing] = useState(false);
   const [syncMessage, setSyncMessage] = useState("Pronto per la sincronizzazione");
   const [sourceProviders, setSourceProviders] = useState<SourceProvider[]>([]);
   const [aiBudget] = useState(LEAGUE_BUDGET);
@@ -313,6 +314,7 @@ export default function Home() {
   const selectedLiveHasHistory = Boolean(selectedLive?.statsSeason !== null && selectedLive?.statsSeason !== undefined && ((selectedLive?.appearances ?? 0) > 0 || (selectedLive?.minutes ?? 0) > 0));
   const rosterShortlistCount = livePlayers.filter((player) => shortlist.includes(`roster:${player.id}`) || radarShortlistNames.has(player.name)).length;
   const activeRosterStatFilters = [rosterMinGoals, rosterMinAssists, rosterMinDribbles].filter((value) => value > 0).length;
+  const officialQuoteCount = livePlayers.filter((player) => player.officialQuote !== null).length;
 
   function clearRosterStatFilters() {
     setRosterMinGoals(0);
@@ -376,6 +378,25 @@ export default function Home() {
     }
   }
 
+  async function syncOfficialList() {
+    setQuoteSyncing(true);
+    setSyncMessage("Aggiornamento del Listone ufficiale in corso…");
+    try {
+      const response = await fetch("/api/quotes/sync", { method: "POST" });
+      const result = await response.json() as { updated?: number; listed?: number; unmatched?: number; error?: string };
+      if (!response.ok) throw new Error(result.error ?? "Aggiornamento Listone non riuscito");
+      const rosterResponse = await fetch("/api/players", { cache: "no-store" });
+      const roster = await rosterResponse.json() as { players?: LivePlayer[]; source?: "api-football" | "demo" };
+      setLivePlayers(roster.players ?? []);
+      setRosterSource(roster.source ?? "demo");
+      setSyncMessage(`Listone 2026/27 aggiornato: ${result.updated ?? 0} prezzi abbinati su ${result.listed ?? 0} · ${result.unmatched ?? 0} da verificare`);
+    } catch (error) {
+      setSyncMessage(error instanceof Error ? error.message : "Aggiornamento Listone non riuscito");
+    } finally {
+      setQuoteSyncing(false);
+    }
+  }
+
   function sourceBadge(id: string, fallback: string) {
     const provider = sourceProviders.find((item) => item.id === id);
     if (!provider) return { label: fallback, className: id === "football-data" || id === "thesportsdb" || id === "supabase" ? "ready" : "key" };
@@ -422,7 +443,7 @@ export default function Home() {
 
   return (
     <main>
-      <div className="data-banner">SCENARIO PRE-ASTA 2026/27 <span>•</span> Budget lega 250 crediti <span>•</span> Ranking live, quotazioni UNDICI non ufficiali</div>
+      <div className="data-banner">SCENARIO PRE-ASTA 2026/27 <span>•</span> Budget lega 250 crediti <span>•</span> {officialQuoteCount ? `${officialQuoteCount} quotazioni ufficiali sincronizzate` : "Quotazioni UNDICI in attesa del Listone"}</div>
       <header className="topbar">
         <button className="brand" onClick={() => setTab("radar")} aria-label="Vai alla home">
           <span className="brand-mark">U</span>
@@ -525,7 +546,7 @@ export default function Home() {
         <section className="page-section roster-page">
           <div className="page-heading roster-heading">
             <div><p className="eyebrow">DATABASE SERIE A · 2026/27</p><h1>Tutti i giocatori.<br />Prima i giovani.</h1></div>
-            <div className="roster-intro"><p>Rose complete, rendimento precedente e potenziale. Le quotazioni sono indicate come ufficiali solo quando provengono dal Listone; fino ad allora vedi la stima UNDICI.</p><div className={`roster-source ${rosterSource ?? "loading"}`}><span />{rosterLoading ? "Caricamento rosa…" : rosterSource === "api-football" ? `${livePlayers.length} giocatori · API-Football live` : "Anteprima · prima sincronizzazione in attesa"}</div></div>
+            <div className="roster-intro"><p>Rose complete, rendimento precedente e potenziale. I prezzi sincronizzati dal Listone sono marcati come ufficiali; sugli altri profili resta visibile la stima UNDICI.</p><div className={`roster-source ${rosterSource ?? "loading"}`}><span />{rosterLoading ? "Caricamento rosa…" : rosterSource === "api-football" ? `${livePlayers.length} giocatori · ${officialQuoteCount} prezzi ufficiali` : "Anteprima · prima sincronizzazione in attesa"}</div></div>
           </div>
           {rosterMessage && <div className="roster-notice"><b>Sincronizzazione programmata</b><span>{rosterMessage}</span></div>}
           <div className="roster-toolbar">
@@ -717,7 +738,7 @@ export default function Home() {
       {tab === "fonti" && (
         <section className="page-section sources-page">
           <div className="page-heading compact"><p className="eyebrow">TRASPARENZA DEL DATO</p><h1>Fonti sotto controllo.</h1><p>L’app non inventa una statistica mancante: mostra copertura, freschezza e affidabilità di ogni segnale.</p></div>
-          <div className="source-status"><div><span className="pulse" /><div><strong>{syncMessage}</strong><small>Le stime demo restano disponibili anche offline</small></div></div><button onClick={syncSources} disabled={syncing}>{syncing ? "Sincronizzazione…" : "Verifica connessioni"}</button></div>
+          <div className="source-status"><div><span className="pulse" /><div><strong>{syncMessage}</strong><small>Il Listone viene ricontrollato automaticamente ogni notte</small></div></div><div className="source-actions"><button onClick={syncOfficialList} disabled={quoteSyncing || syncing}>{quoteSyncing ? "Aggiornamento…" : "Aggiorna Listone"}</button><button className="secondary" onClick={syncSources} disabled={syncing || quoteSyncing}>{syncing ? "Verifica…" : "Verifica connessioni"}</button></div></div>
           <div className="source-grid">
             <article><div className="source-logo">FD</div><span className={`source-state ${sourceBadge("football-data", "Gratuita").className}`}>{sourceBadge("football-data", "Gratuita").label}</span><h2>football-data.org</h2><p>Calendario, classifiche, rose e risultati. Base affidabile per il contesto squadra.</p><ul><li>10 richieste/min nel piano free</li><li>Token personale richiesto</li><li>Copertura Serie A da verificare per stagione</li></ul></article>
             <article><div className="source-logo">AF</div><span className={`source-state ${sourceBadge("api-football", "Chiave API").className}`}>{sourceBadge("api-football", "Chiave API").label}</span><h2>API-Football</h2><p>Statistiche giocatore, tiri, passaggi, trasferimenti e infortuni quando inclusi nel piano.</p><ul><li>100 richieste/giorno nel piano free</li><li>Stagioni free soggette a limiti</li><li>Fonte primaria del motore statistico</li></ul></article>
@@ -725,8 +746,9 @@ export default function Home() {
             <article><div className="source-logo">SD</div><span className={`source-state ${sourceBadge("thesportsdb", "Pubblica").className}`}>{sourceBadge("thesportsdb", "Pubblica").label}</span><h2>TheSportsDB</h2><p>Squadre, giocatori e metadati di supporto con accesso pubblico al livello base.</p><ul><li>30 richieste/min gratuite</li><li>Chiave pubblica v1 disponibile</li><li>Fallback per anagrafiche e club</li></ul></article>
             <article><div className="source-logo">AI</div><span className={`source-state ${sourceBadge("openai", "Chiave privata").className}`}>{sourceBadge("openai", "Chiave privata").label}</span><h2>OpenAI</h2><p>Ragiona sui segnali disponibili e costruisce la rosa completa con sei leader e low-cost predittivi.</p><ul><li>gpt-5.6-sol per le scelte</li><li>gpt-5.6-luna per il report</li><li>Chiave custodita solo su Vercel</li></ul></article>
             <article><div className="source-logo">SB</div><span className={`source-state ${sourceBadge("supabase", "Piano free").className}`}>{sourceBadge("supabase", "Piano free").label}</span><h2>Supabase</h2><p>Database Postgres esterno per conservare lo storico dei report giornalieri.</p><ul><li>Accesso soltanto lato server</li><li>Row Level Security attiva</li><li>Nessuna chiave esposta al browser</li></ul></article>
+            <article><div className="source-logo">LF</div><span className={`source-state ${sourceBadge("listone", "Ufficiale").className}`}>{sourceBadge("listone", "Ufficiale").label}</span><h2>Listone Fantacalcio</h2><p>Ruoli Classic, quotazioni correnti e FVM della stagione 2026/27 dalla pagina pubblica ufficiale.</p><ul><li>Aggiornamento automatico giornaliero</li><li>Abbinamento prudente nome e squadra</li><li>Casi dubbi esclusi e segnalati</li></ul></article>
           </div>
-          <div className="method-note"><span>i</span><div><h3>Come nasce il DS Score</h3><p>Prestazione 40% · titolarità 20% · affidabilità fisica 15% · contesto squadra 15% · prezzo e hype 10%. Regola rosa: 6 leader, due per reparto; gli altri profili di movimento non superano 10 crediti. Età e nazionali Under 18/19 aumentano la proiezione solo quando il segnale è verificabile. La quota ufficiale richiede una licenza del relativo editore: in questa versione è una stima interna dichiarata.</p></div></div>
+          <div className="method-note"><span>i</span><div><h3>Come nasce il DS Score</h3><p>Prestazione 40% · titolarità 20% · affidabilità fisica 15% · contesto squadra 15% · prezzo e hype 10%. Regola rosa: 6 leader, due per reparto; gli altri profili di movimento non superano 10 crediti. Età e nazionali Under 18/19 aumentano la proiezione solo quando il segnale è verificabile. Quotazioni, ruoli e FVM ufficiali sono attribuiti a Fantacalcio.it; UNDICI conserva una stima separata soltanto per i profili non abbinati.</p></div></div>
         </section>
       )}
 
