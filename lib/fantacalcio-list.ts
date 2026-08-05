@@ -1,4 +1,4 @@
-import { getSerieAPlayers, upsertSerieAPlayers } from "./supabase";
+import { deleteSerieAPlayers, getSerieAPlayers, upsertSerieAPlayers } from "./supabase";
 import type { SerieAPlayerRecord, SerieARole } from "./serie-a";
 
 export const OFFICIAL_LIST_URL = "https://www.fantacalcio.it/quotazioni-fantacalcio";
@@ -18,6 +18,16 @@ const TEAM_NAMES: Record<string, string> = {
   FRO: "Frosinone", GEN: "Genoa", INT: "Inter", JUV: "Juventus", LAZ: "Lazio",
   LEC: "Lecce", MIL: "Milan", MON: "Monza", NAP: "Napoli", PAR: "Parma",
   ROM: "Roma", SAS: "Sassuolo", TOR: "Torino", UDI: "Udinese", VEN: "Venezia",
+};
+
+const TEAM_ALIASES: Record<string, string[]> = {
+  INT: ["inter", "inter milan", "internazionale"],
+  MIL: ["milan", "ac milan"],
+  MON: ["monza", "ac monza"],
+  ROM: ["roma", "as roma"],
+  LAZ: ["lazio", "ss lazio"],
+  LEC: ["lecce", "us lecce"],
+  FIO: ["fiorentina", "acf fiorentina"],
 };
 
 function decodeHtml(value: string) {
@@ -58,6 +68,7 @@ function normalise(value?: string | null) {
     .replace(/ø/g, "o")
     .replace(/đ/g, "d")
     .toLocaleLowerCase("it")
+    .replace(/['’]/g, "")
     .replace(/[^a-z0-9]+/g, " ")
     .trim();
 }
@@ -67,10 +78,12 @@ function tokens(value?: string | null) {
 }
 
 function playerTeamCode(player: SerieAPlayerRecord) {
+  const team = normalise(player.team_name);
+  const byName = Object.entries(TEAM_NAMES).find(([code, name]) => (TEAM_ALIASES[code] ?? [normalise(name)]).includes(team))?.[0];
+  if (byName) return byName;
   const explicit = player.team_code?.toUpperCase();
   if (explicit && TEAM_NAMES[explicit]) return explicit;
-  const team = normalise(player.team_name);
-  return Object.entries(TEAM_NAMES).find(([, name]) => normalise(name) === team)?.[0] ?? "";
+  return "";
 }
 
 function nameScore(official: OfficialListPlayer, player: SerieAPlayerRecord) {
@@ -100,6 +113,7 @@ function nameScore(official: OfficialListPlayer, player: SerieAPlayerRecord) {
     score += initialMatch ? 18 : -24;
   }
   if (playerTeamCode(player) === official.teamCode) score += 28;
+  if (player.provider_id > 0) score += 40;
   return score;
 }
 
@@ -180,13 +194,80 @@ export async function syncOfficialQuotes() {
       },
     } satisfies SerieAPlayerRecord;
   });
-  await upsertSerieAPlayers(updates);
+  const additions = unmatched.map((official) => {
+    const targetTeam = teamMetadata.get(official.teamCode);
+    const score = Math.min(95, Math.round(35 + official.quote * 1.5));
+    return {
+      provider_id: -official.sourceId,
+      name: official.name,
+      firstname: null,
+      lastname: null,
+      age: null,
+      birth_date: null,
+      nationality: null,
+      height: null,
+      weight: null,
+      photo_url: null,
+      role: official.role,
+      position: "Listone Fantacalcio",
+      shirt_number: null,
+      team_id: targetTeam?.team_id ?? -official.sourceId,
+      team_name: official.team,
+      team_code: official.teamCode,
+      team_logo: targetTeam?.team_logo ?? null,
+      stats_season: null,
+      appearances: null,
+      starts: null,
+      minutes: null,
+      rating: null,
+      goals: null,
+      assists: null,
+      shots_total: null,
+      shots_on: null,
+      passes_total: null,
+      key_passes: null,
+      pass_accuracy: null,
+      dribbles_attempts: null,
+      dribbles_success: null,
+      tackles: null,
+      current_injured: false,
+      injuries_count: 0,
+      injury_note: null,
+      quote_estimate: official.quote,
+      official_quote: official.quote,
+      official_fvm: official.fvm,
+      official_role: official.role,
+      ds_score: score,
+      potential_score: score,
+      raw: {
+        officialList: {
+          source: OFFICIAL_LIST_URL,
+          sourceId: official.sourceId,
+          displayName: official.name,
+          teamCode: official.teamCode,
+          role: official.role,
+          quote: official.quote,
+          fvm: official.fvm,
+          officialOnly: true,
+          syncedAt,
+        },
+      },
+    } satisfies SerieAPlayerRecord;
+  });
+  await upsertSerieAPlayers([...updates, ...additions]);
+  const staleOfficialOnlyIds = matches
+    .filter(({ player }) => player.provider_id > 0)
+    .map(({ official }) => -official.sourceId)
+    .filter((id) => storedPlayers.some((player) => player.provider_id === id));
+  await deleteSerieAPlayers(staleOfficialOnlyIds);
   const transferred = updates.filter((player, index) => player.team_name !== matches[index].player.team_name).length;
   return {
     source: OFFICIAL_LIST_URL,
     season: "2026/27",
     listed: officialPlayers.length,
-    updated: updates.length,
+    updated: updates.length + additions.length,
+    matched: updates.length,
+    added: additions.length,
     transferred,
     unmatched: unmatched.length,
     unmatchedPreview: unmatched.slice(0, 20).map((player) => `${player.name} (${player.teamCode})`),

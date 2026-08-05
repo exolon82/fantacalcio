@@ -78,3 +78,13 @@ export async function upsertSerieAPlayers(players: SerieAPlayerRecord[]) {
     if (!response.ok) throw new Error(`Supabase players write ${response.status}: ${(await response.text()).slice(0, 220)}`);
   }
 }
+
+export async function deleteSerieAPlayers(providerIds: number[]) {
+  const settings = config();
+  if (!settings || !providerIds.length) return;
+  const response = await fetch(`${settings.url}/rest/v1/serie_a_players?provider_id=in.(${providerIds.join(",")})`, {
+    method: "DELETE",
+    headers: headers(settings.key),
+  });
+  if (!response.ok) throw new Error(`Supabase players delete ${response.status}: ${(await response.text()).slice(0, 180)}`);
+}
