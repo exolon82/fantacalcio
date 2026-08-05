@@ -7,6 +7,7 @@ type Tab = "radar" | "rosa" | "mercato" | "confronta" | "ai" | "fonti";
 
 type AiPick = { player: string; club: string; role: Role; tier: "Leader" | "Low-cost" | "Portiere"; maxBid: number; reason: string; risk: string };
 type AiPlan = { title: string; formation: string; budget: number; estimatedSpend: number; leadersUsed: number; goalkeepers: AiPick[]; leaders: AiPick[]; lowCost: AiPick[]; tacticalNote: string; budgetRule: string };
+type SavedAiPlan = { id: string; createdAt: string; source: "openai" | "simulazione"; plan: AiPlan };
 type DailyReport = {
   date: string;
   headline: string;
@@ -188,6 +189,8 @@ export default function Home() {
   const [aiRisk, setAiRisk] = useState("Equilibrato");
   const [aiPlan, setAiPlan] = useState<AiPlan | null>(null);
   const [aiSource, setAiSource] = useState<"openai" | "simulazione" | null>(null);
+  const [savedAiPlans, setSavedAiPlans] = useState<SavedAiPlan[]>([]);
+  const [saveMessage, setSaveMessage] = useState("");
   const [aiLoading, setAiLoading] = useState(false);
   const [aiError, setAiError] = useState("");
   const [dailyReport, setDailyReport] = useState<DailyReport | null>(null);
@@ -222,6 +225,19 @@ export default function Home() {
       // Ripristino una preferenza del browser dopo il primo render client.
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setShortlist(parsed.map((item) => typeof item === "number" ? `radar:${item}` : item));
+    }
+  }, []);
+
+  useEffect(() => {
+    try {
+      const saved = window.localStorage.getItem("undici-ai-roses");
+      if (!saved) return;
+      const parsed = JSON.parse(saved) as SavedAiPlan[];
+      // Ripristino le rose salvate su questo dispositivo.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setSavedAiPlans(Array.isArray(parsed) ? parsed.slice(0, 10) : []);
+    } catch {
+      window.localStorage.removeItem("undici-ai-roses");
     }
   }, []);
 
@@ -418,11 +434,47 @@ export default function Home() {
       if (!response.ok || !data.plan) throw new Error(data.error ?? "Il DS AI non ha completato l’analisi.");
       setAiPlan(data.plan);
       setAiSource(data.source ?? "simulazione");
+      setSaveMessage("");
     } catch (error) {
       setAiError(error instanceof Error ? error.message : "Connessione AI non disponibile.");
     } finally {
       setAiLoading(false);
     }
+  }
+
+  function saveAiPlan() {
+    if (!aiPlan) return;
+    const saved: SavedAiPlan = {
+      id: typeof crypto.randomUUID === "function" ? crypto.randomUUID() : String(Date.now()),
+      createdAt: new Date().toISOString(),
+      source: aiSource ?? "simulazione",
+      plan: aiPlan,
+    };
+    const next = [saved, ...savedAiPlans].slice(0, 10);
+    setSavedAiPlans(next);
+    window.localStorage.setItem("undici-ai-roses", JSON.stringify(next));
+    setSaveMessage("Rosa salvata su questo dispositivo");
+  }
+
+  function loadAiPlan(saved: SavedAiPlan) {
+    setAiPlan(saved.plan);
+    setAiSource(saved.source);
+    setSaveMessage(`Rosa del ${new Date(saved.createdAt).toLocaleDateString("it-IT")} caricata`);
+    requestAnimationFrame(() => document.querySelector(".ai-result")?.scrollIntoView({ behavior: "smooth", block: "start" }));
+  }
+
+  function deleteAiPlan(id: string) {
+    const next = savedAiPlans.filter((saved) => saved.id !== id);
+    setSavedAiPlans(next);
+    window.localStorage.setItem("undici-ai-roses", JSON.stringify(next));
+  }
+
+  function printAiPlan() {
+    if (!aiPlan) return;
+    document.body.classList.add("print-ai-plan");
+    const cleanup = () => document.body.classList.remove("print-ai-plan");
+    window.addEventListener("afterprint", cleanup, { once: true });
+    window.print();
   }
 
   async function generateReportNow() {
@@ -704,10 +756,17 @@ export default function Home() {
             </aside>
           </div>
 
+          {savedAiPlans.length > 0 && (
+            <section className="saved-roses" aria-label="Rose salvate">
+              <div className="saved-roses-head"><div><small>ARCHIVIO PERSONALE</small><h2>Le mie rose salvate</h2></div><span>{savedAiPlans.length}/10 · su questo dispositivo</span></div>
+              <div className="saved-roses-list">{savedAiPlans.map((saved) => <article key={saved.id}><button className="saved-rose-open" onClick={() => loadAiPlan(saved)}><b>{saved.plan.title}</b><span>{new Date(saved.createdAt).toLocaleString("it-IT", { dateStyle: "short", timeStyle: "short" })} · {saved.plan.formation} · {saved.plan.estimatedSpend}/{saved.plan.budget} crediti</span></button><button className="saved-rose-delete" onClick={() => deleteAiPlan(saved.id)} aria-label={`Elimina ${saved.plan.title}`}>×</button></article>)}</div>
+            </section>
+          )}
+
           {aiPlan && (
             <div className="ai-result">
               <div className="result-head">
-                <div><span className={`engine-state ${aiSource}`}>{aiSource === "openai" ? "OPENAI LIVE" : "ANTEPRIMA INTELLIGENTE"}</span><h2>{aiPlan.title}</h2><p>{aiPlan.tacticalNote}</p></div>
+                <div><span className={`engine-state ${aiSource}`}>{aiSource === "openai" ? "OPENAI LIVE" : "ANTEPRIMA INTELLIGENTE"}</span><h2>{aiPlan.title}</h2><p>{aiPlan.tacticalNote}</p><div className="result-actions"><button onClick={saveAiPlan}>★ Salva rosa</button><button className="secondary" onClick={printAiPlan}>↓ Salva PDF / Stampa</button>{saveMessage && <span>{saveMessage}</span>}</div></div>
                 <div className="budget-card"><small>SPESA ROSA · {aiPlan.goalkeepers.length + aiPlan.leaders.length + aiPlan.lowCost.length}/25 GIOCATORI</small><strong>{aiPlan.estimatedSpend}</strong><span>su {aiPlan.budget} crediti</span><b>{Math.max(0, aiPlan.budget - aiPlan.estimatedSpend)} residui</b></div>
               </div>
               <div className="full-squad-groups">
